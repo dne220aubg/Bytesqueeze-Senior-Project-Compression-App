@@ -26,9 +26,7 @@ namespace SeniorProjectCompressionApp.Services
 
         private static readonly byte[] RawContainerHeader = Encoding.ASCII.GetBytes("SPCR1");
         private static readonly byte[] EncryptedContainerHeader = Encoding.ASCII.GetBytes("SPCE"); // Encrypted Magic Header
-        private const int MinimumRawSegmentSize = 4096;
-        private const double RawEntropyThreshold = 7.5;
-        private const long SmallFileEntropyThresholdBytes = 2 * 1024 * 1024;
+        private const int StreamingFormatVersion = 2;
 
         public CompressionOrchestrator(
             ICompressionAlgorithmRegistry registry,
@@ -89,7 +87,7 @@ namespace SeniorProjectCompressionApp.Services
             compressionStopwatch.Stop();
             ReportProgress(progress, 0.8);
 
-            byte[] finalData = PackageCompressedPayload(compressedPayload, payloadResult.RawSegments);
+            byte[] finalData = compressedPayload;
             bool isEncrypted = !string.IsNullOrEmpty(password);
 
             if (isEncrypted)
@@ -152,7 +150,7 @@ namespace SeniorProjectCompressionApp.Services
                 // Write Metadata (Version, Encrypted, Algorithm)
                 using (BinaryWriter writer = new BinaryWriter(outputStream, Encoding.UTF8, leaveOpen: true))
                 {
-                    writer.Write(1); // Version
+                    writer.Write(StreamingFormatVersion); // Version
                     writer.Write(isEncrypted);
                     writer.Write(algorithm.Name);
                     writer.Write(rootName);
@@ -282,7 +280,6 @@ namespace SeniorProjectCompressionApp.Services
                 {
                     writer.Write(dir.RelativePath);
                     writer.Write(true); // IsDirectory
-                    writer.Write(false); // StoredRaw
                     writer.Write(0L); // OriginalLength
                     writer.Write(0L); // CompressedLength
                 }
@@ -351,26 +348,11 @@ namespace SeniorProjectCompressionApp.Services
                             {
                                 using (var ms = new MemoryStream())
                                 {
-                                    bool raw = await ShouldStoreAsRawAsync(p, entry.OriginalLength, cancellationToken);
-                                    if (raw)
+                                    using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
                                     {
-                                        byte[] b = File.ReadAllBytes(p);
-                                        return (b, (long)b.Length, true);
+                                        await algorithm.CompressAsync(fs, ms, cancellationToken);
                                     }
-                                    else
-                                    {
-                                        using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
-                                        {
-                                            // Create a progress reporter for this file
-                                            // Since we are inside a parallel task, we need to be careful with reporting.
-                                            // We can just report to a local variable and let the main loop handle the big picture,
-                                            // OR we can try to report fine-grained progress.
-                                            // For now, let's just pass null as the orchestrator handles file-level progress.
-                                            // Improvements: Aggregate progress from all tasks.
-                                            await algorithm.CompressAsync(fs, ms, null, cancellationToken);
-                                        }
-                                        return (ms.ToArray(), ms.Length, false);
-                                    }
+                                    return (ms.ToArray(), ms.Length);
                                 }
                             });
                         }).ToList();
@@ -385,7 +367,6 @@ namespace SeniorProjectCompressionApp.Services
 
                             writer.Write(entry.RelativePath);
                             writer.Write(false); // IsDirectory
-                            writer.Write(result.Item3); // StoredRaw
                             writer.Write(entry.OriginalLength);
                             writer.Write(result.Item2); // Length
                             writer.Flush();
@@ -414,11 +395,8 @@ namespace SeniorProjectCompressionApp.Services
             long currentProcessedBytes,
             CancellationToken cancellationToken)
         {
-            bool storeAsRaw = await ShouldStoreAsRawAsync(fullPath, entry.OriginalLength, cancellationToken).ConfigureAwait(false);
-
             writer.Write(entry.RelativePath);
             writer.Write(false);
-            writer.Write(storeAsRaw);
             writer.Write(entry.OriginalLength);
 
             long compressedLength;
@@ -431,18 +409,7 @@ namespace SeniorProjectCompressionApp.Services
                 ReportProgress(progress, Math.Min(0.99, fraction));
             };
 
-            if (storeAsRaw)
-            {
-                compressedLength = entry.OriginalLength;
-                writer.Write(compressedLength);
-                writer.Flush();
-
-                using (FileStream input = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
-                {
-                    await StreamChunker.CopyAsync(input, dataStream, entry.OriginalLength, bytesCopied => updateProgress(bytesCopied), cancellationToken).ConfigureAwait(false);
-                }
-            }
-            else if (!isEncrypted && dataStream.CanSeek)
+            if (!isEncrypted && dataStream.CanSeek)
             {
                 writer.Flush();
                 long lengthPosition = dataStream.Position;
@@ -453,14 +420,7 @@ namespace SeniorProjectCompressionApp.Services
                 using (FileStream input = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
                 {
                     var progressStream = new ProgressReadStream(input, bytesRead => updateProgress(bytesRead));
-                    // Pass a progress handler that updates the processed bytes
-                    // Note: updateProgress is already called by ProgressReadStream, so we might be double counting if we also report from algorithm.
-                    // However, ProgressReadStream counts *input* bytes. Algorithm reports *input* bytes processed.
-                    // So we should NOT use ProgressReadStream AND algorithm progress if they track the same thing.
-                    // Let's use the algorithm's progress if available, otherwise fallback to stream.
-                    // Actually, for consistency, let's stick to ProgressReadStream for the input stream tracking, 
-                    // and pass null to algorithm to avoid double reporting.
-                    await algorithm.CompressAsync(progressStream, dataStream, null, cancellationToken).ConfigureAwait(false);
+                    await algorithm.CompressAsync(progressStream, dataStream, cancellationToken).ConfigureAwait(false);
                     await dataStream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 }
 
@@ -480,7 +440,7 @@ namespace SeniorProjectCompressionApp.Services
                     using (FileStream input = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
                     {
                         var progressStream = new ProgressReadStream(input, bytesRead => updateProgress(bytesRead));
-                        await algorithm.CompressAsync(progressStream, ms, null, cancellationToken).ConfigureAwait(false);
+                        await algorithm.CompressAsync(progressStream, ms, cancellationToken).ConfigureAwait(false);
                     }
                     compressedLength = ms.Length;
                     writer.Write(compressedLength);
@@ -494,12 +454,6 @@ namespace SeniorProjectCompressionApp.Services
             ReportProgress(progress, Math.Min(0.99, fraction));
             
             return entry.OriginalLength;
-        }
-
-        private static async Task<bool> ShouldStoreAsRawAsync(string path, long length, CancellationToken cancellationToken)
-        {
-            // WinRAR/7-Zip approach: Just compress everything!
-            return false;
         }
 
         public async Task<DecompressionSummary> DecompressAsync(
@@ -549,10 +503,8 @@ namespace SeniorProjectCompressionApp.Services
             }
 
             ReportProgress(progress, 0.45);
-            Dictionary<int, byte[]> rawSegments = ExtractRawSegments(storedData, out byte[] compressedSection);
-
             Stopwatch decompressionStopwatch = Stopwatch.StartNew();
-            byte[] payload = algorithm.Decompress(metadata, compressedSection, cancellationToken);
+            byte[] payload = algorithm.Decompress(metadata, storedData, cancellationToken);
             decompressionStopwatch.Stop();
             ReportProgress(progress, 0.6);
 
@@ -563,7 +515,7 @@ namespace SeniorProjectCompressionApp.Services
             if (package.Manifest.IsDirectory) Directory.CreateDirectory(targetRoot);
             else { string? parent = Path.GetDirectoryName(targetRoot); if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent); }
 
-            await RestoreEntriesAsync(package.Manifest, payload, rawSegments, destinationDirectory, targetRoot, progress, cancellationToken).ConfigureAwait(false);
+            await RestoreEntriesAsync(package.Manifest, payload, destinationDirectory, targetRoot, progress, cancellationToken).ConfigureAwait(false);
             ReportProgress(progress, 1.0);
 
             long restoredBytes = package.Manifest.Entries.Where(entry => !entry.IsDirectory).Sum(entry => entry.OriginalLength);
@@ -596,6 +548,10 @@ namespace SeniorProjectCompressionApp.Services
                 if (!header.SequenceEqual(RawContainerHeader)) throw new InvalidDataException("Invalid header.");
 
                 int version = reader.ReadInt32();
+                if (version < 1 || version > StreamingFormatVersion)
+                {
+                    throw new InvalidDataException($"Unsupported streaming archive version: {version}.");
+                }
                 bool isEncrypted = reader.ReadBoolean();
                 wasEncrypted = isEncrypted;
                 algorithmName = reader.ReadString();
@@ -660,6 +616,7 @@ namespace SeniorProjectCompressionApp.Services
                 // Read Entries
                 // Use helpers directly on dataStream to avoid buffering issues
                 int entryCount = await ReadInt32Async(dataStream);
+                bool hasLegacyRawFlag = version == 1;
                 
                 for (int i = 0; i < entryCount; i++)
                 {
@@ -667,9 +624,12 @@ namespace SeniorProjectCompressionApp.Services
                     
                     string relativePath = await ReadStringAsync(dataStream);
                     bool isDir = await ReadBooleanAsync(dataStream);
-                    bool storedRaw = await ReadBooleanAsync(dataStream);
+                    if (hasLegacyRawFlag)
+                    {
+                        await ReadBooleanAsync(dataStream); // Discard legacy raw flag.
+                    }
                     long originalLength = await ReadInt64Async(dataStream);
-                    long compressedLength = await ReadInt64Async(dataStream);
+                    _ = await ReadInt64Async(dataStream); // Compressed length (not needed for decompression boundary).
                     
                     string fullPath = Path.Combine(destinationDirectory, rootName, relativePath);
                     if (!isDirectory && i == 0) fullPath = Path.Combine(destinationDirectory, rootName); // Single file case
@@ -684,34 +644,20 @@ namespace SeniorProjectCompressionApp.Services
                     
                     using (FileStream output = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
                     {
-                        if (storedRaw)
-                        {
-                            await StreamChunker.CopyAsync(dataStream, output, originalLength, null, cancellationToken);
-                            restoredBytes += originalLength;
-                        }
-                        else
-                        {
-                            // Create a progress reporter for decompression
-                            // We know the original length of this file.
-                            long fileTotalBytes = originalLength;
-                            long fileProcessedBytes = 0;
-                            
-                            var fileProgress = new Progress<long>(bytes => 
-                            {
-                                // bytes is total bytes written for this file so far
-                                long delta = bytes - fileProcessedBytes;
-                                fileProcessedBytes = bytes;
-                                restoredBytes += delta; // Update global restored count (careful with concurrency if parallel, but this is sequential loop)
-                                
-                                // Report global progress
-                                // We are at file 'i' of 'entryCount'.
-                                // A better approximation: (i + (fileProcessedBytes / fileTotalBytes)) / entryCount
-                                double fileFraction = fileTotalBytes > 0 ? (double)fileProcessedBytes / fileTotalBytes : 1.0;
-                                double globalFraction = (i + fileFraction) / entryCount;
-                                ReportProgress(progress, globalFraction);
-                            });
+                        long fileTotalBytes = originalLength;
+                        long fileProcessedBytes = 0;
 
-                            await algorithm.DecompressAsync(dataStream, output, fileProgress, cancellationToken);
+                        using (var progressOutput = new ProgressWriteStream(output, bytes =>
+                        {
+                            fileProcessedBytes += bytes;
+                            restoredBytes += bytes;
+
+                            double fileFraction = fileTotalBytes > 0 ? (double)fileProcessedBytes / fileTotalBytes : 1.0;
+                            double globalFraction = (i + fileFraction) / entryCount;
+                            ReportProgress(progress, globalFraction);
+                        }))
+                        {
+                            await algorithm.DecompressAsync(dataStream, progressOutput, cancellationToken);
                         }
                     }
                     
@@ -730,49 +676,36 @@ namespace SeniorProjectCompressionApp.Services
         private async Task<PayloadBuildResult> BuildPayloadAsync(string normalizedPath, bool isDirectory, IProgress<double>? progress, CancellationToken cancellationToken)
         {
             List<ArchiveEntry> entries = new List<ArchiveEntry>();
-            List<RawSegment> rawSegments = new List<RawSegment>();
 
             if (!isDirectory)
             {
                 FileInfo fileInfo = new FileInfo(normalizedPath);
                 byte[] fileData = await _fileSystem.ReadFileAsync(normalizedPath, cancellationToken).ConfigureAwait(false);
-                bool storeRaw = ShouldStoreAsRaw(fileData, fileInfo.Length);
-                entries.Add(new ArchiveEntry(fileInfo.Name, false, fileInfo.Length, storeRaw));
-                if (storeRaw) rawSegments.Add(new RawSegment(0, fileData));
-                else return new PayloadBuildResult(fileData, entries, rawSegments);
-                return new PayloadBuildResult(Array.Empty<byte>(), entries, rawSegments);
+                entries.Add(new ArchiveEntry(fileInfo.Name, false, fileInfo.Length));
+                return new PayloadBuildResult(fileData, entries);
             }
 
             string rootPath = normalizedPath;
             string[] files = Directory.GetFiles(rootPath, "*", SearchOption.AllDirectories);
-            long totalBytes = files.Sum(path => new FileInfo(path).Length);
-            long processedBytes = 0;
 
             using (MemoryStream payload = new MemoryStream())
             {
-                int fileIndex = 0;
                 foreach (string file in files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     FileInfo info = new FileInfo(file);
                     string relativePath = PathUtilities.GetRelativePath(rootPath, file);
                     byte[] data = await _fileSystem.ReadFileAsync(file, cancellationToken).ConfigureAwait(false);
-                    bool storeRaw = ShouldStoreAsRaw(data, info.Length);
-                    entries.Add(new ArchiveEntry(relativePath, false, info.Length, storeRaw));
-                    if (storeRaw) rawSegments.Add(new RawSegment(fileIndex, data));
-                    else payload.Write(data, 0, data.Length);
-                    processedBytes += data.Length;
-                    fileIndex++;
+                    entries.Add(new ArchiveEntry(relativePath, false, info.Length));
+                    payload.Write(data, 0, data.Length);
                 }
-                return new PayloadBuildResult(payload.ToArray(), entries, rawSegments);
+                return new PayloadBuildResult(payload.ToArray(), entries);
             }
         }
 
-        private async Task RestoreEntriesAsync(ArchiveManifest manifest, byte[] payload, IReadOnlyDictionary<int, byte[]> rawSegments, string destinationDirectory, string targetRoot, IProgress<double>? progress, CancellationToken cancellationToken)
+        private async Task RestoreEntriesAsync(ArchiveManifest manifest, byte[] payload, string destinationDirectory, string targetRoot, IProgress<double>? progress, CancellationToken cancellationToken)
         {
-            long payloadLength = payload.LongLength;
             long position = 0;
-            int fileIndex = 0;
 
             foreach (ArchiveEntry entry in manifest.Entries)
             {
@@ -783,96 +716,23 @@ namespace SeniorProjectCompressionApp.Services
                 if (entry.IsDirectory) { Directory.CreateDirectory(targetPath); continue; }
                 Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? targetRoot);
 
-                if (entry.StoredAsRaw)
-                {
-                    if (!rawSegments.TryGetValue(fileIndex, out byte[]? rawData)) throw new InvalidOperationException("Missing raw data.");
-                    await _fileSystem.WriteFileAsync(targetPath, rawData!, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    int length = (int)entry.OriginalLength;
-                    byte[] fileData = new byte[length];
-                    Buffer.BlockCopy(payload, (int)position, fileData, 0, length);
-                    position += length;
-                    await _fileSystem.WriteFileAsync(targetPath, fileData, cancellationToken).ConfigureAwait(false);
-                }
-                fileIndex++;
+                int length = (int)entry.OriginalLength;
+                byte[] fileData = new byte[length];
+                Buffer.BlockCopy(payload, (int)position, fileData, 0, length);
+                position += length;
+                await _fileSystem.WriteFileAsync(targetPath, fileData, cancellationToken).ConfigureAwait(false);
             }
-        }
-
-        private static bool ShouldStoreAsRaw(byte[] data, long originalLength)
-        {
-            return false;
-        }
-
-        private static double CalculateShannonEntropy(byte[] data)
-        {
-            return 0;
-        }
-
-        private static byte[] PackageCompressedPayload(byte[] compressedBytes, IReadOnlyList<RawSegment> rawSegments)
-        {
-            if (rawSegments.Count == 0) return compressedBytes;
-            using (MemoryStream stream = new MemoryStream())
-            {
-                stream.Write(RawContainerHeader, 0, RawContainerHeader.Length);
-                using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
-                {
-                    writer.Write(rawSegments.Count);
-                    foreach (RawSegment segment in rawSegments)
-                    {
-                        writer.Write(segment.FileIndex);
-                        writer.Write(segment.Data.Length);
-                        stream.Write(segment.Data, 0, segment.Data.Length);
-                    }
-                    writer.Write(compressedBytes.Length);
-                    stream.Write(compressedBytes, 0, compressedBytes.Length);
-                    writer.Flush();
-                }
-                return stream.ToArray();
-            }
-        }
-
-        private static Dictionary<int, byte[]> ExtractRawSegments(byte[] storedData, out byte[] compressedSection)
-        {
-            if (storedData.Length >= RawContainerHeader.Length && storedData.Take(RawContainerHeader.Length).SequenceEqual(RawContainerHeader))
-            {
-                using (MemoryStream stream = new MemoryStream(storedData, RawContainerHeader.Length, storedData.Length - RawContainerHeader.Length, writable: false))
-                using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true))
-                {
-                    int segmentCount = reader.ReadInt32();
-                    Dictionary<int, byte[]> segments = new Dictionary<int, byte[]>(segmentCount);
-                    for (int i = 0; i < segmentCount; i++)
-                    {
-                        int fileIndex = reader.ReadInt32();
-                        int segmentLength = reader.ReadInt32();
-                        segments[fileIndex] = reader.ReadBytes(segmentLength);
-                    }
-                    int compressedLength = reader.ReadInt32();
-                    compressedSection = reader.ReadBytes(compressedLength);
-                    return segments;
-                }
-            }
-            compressedSection = storedData;
-            return new Dictionary<int, byte[]>(capacity: 0);
         }
 
         private sealed class PayloadBuildResult
         {
-            public PayloadBuildResult(byte[] payload, List<ArchiveEntry> entries, List<RawSegment> rawSegments)
+            public PayloadBuildResult(byte[] payload, List<ArchiveEntry> entries)
             {
-                Payload = payload; Entries = entries; RawSegments = rawSegments;
+                Payload = payload;
+                Entries = entries;
             }
             public byte[] Payload { get; }
             public List<ArchiveEntry> Entries { get; }
-            public List<RawSegment> RawSegments { get; }
-        }
-
-        private sealed class RawSegment
-        {
-            public RawSegment(int fileIndex, byte[] data) { FileIndex = fileIndex; Data = data; }
-            public int FileIndex { get; }
-            public byte[] Data { get; }
         }
 
         private static void ReportProgress(IProgress<double>? progress, double value)
@@ -900,6 +760,33 @@ namespace SeniorProjectCompressionApp.Services
                 return read;
             }
             public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+
+        private sealed class ProgressWriteStream : Stream
+        {
+            private readonly Stream _inner;
+            private readonly Action<int> _onWrite;
+            public ProgressWriteStream(Stream inner, Action<int> onWrite) { _inner = inner; _onWrite = onWrite; }
+            public override bool CanRead => false;
+            public override bool CanSeek => _inner.CanSeek;
+            public override bool CanWrite => _inner.CanWrite;
+            public override long Length => _inner.Length;
+            public override long Position { get => _inner.Position; set => _inner.Position = value; }
+            public override void Flush() => _inner.Flush();
+            public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
+            public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+            public override void SetLength(long value) => _inner.SetLength(value);
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                _inner.Write(buffer, offset, count);
+                _onWrite(count);
+            }
+            public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                await _inner.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+                _onWrite(count);
+            }
         }
         private static async Task<int> ReadInt32Async(Stream stream)
         {
