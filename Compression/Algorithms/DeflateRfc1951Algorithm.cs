@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
@@ -10,7 +10,7 @@ using SeniorProjectCompressionApp.Models;
 
 namespace SeniorProjectCompressionApp.Compression.Algorithms
 {
-    // A minimal RFC1951-style deflate implementation using fixed Huffman blocks (streaming-capable).
+    // A RFC1951-style deflate algorithm implementation using fixed Huffman blocks .
     public sealed class DeflateRfc1951Algorithm : IStreamingCompressionAlgorithm
     {
         private const int ParallelBlockSize = 4 * 1024 * 1024; // 4 MB chunks
@@ -33,25 +33,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             _fixedDistDecode = DeflateHelpers.BuildDecodeTable(_fixedDistCodes, 8);
         }
 
-        public CompressionResult Compress(byte[] data, CancellationToken cancellationToken)
-        {
-            return Compress(data, 0, data.Length, cancellationToken);
-        }
-
-        public CompressionResult Compress(byte[] data, int offset, int count, CancellationToken cancellationToken)
-        {
-            if (data == null) throw new ArgumentNullException(nameof(data));
-            
-            // Output buffer estimate
-            using (MemoryStream output = new MemoryStream(count / 2 + 256))
-            {
-                var encoder = new DeflateEncoder(output, _fixedLitLenCodes, _fixedDistCodes, _level);
-                encoder.CompressBytes(data, offset, count, cancellationToken);
-                return new CompressionResult(new CompressionMetadata(Name, count, new Dictionary<string, string>()), output.ToArray());
-            }
-        }
-
-        public async Task CompressAsync(Stream input, Stream output, CancellationToken cancellationToken)
+        public async Task CompressAsync(Stream input, Stream output, IProgress<long>? progress, CancellationToken cancellationToken)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (output == null) throw new ArgumentNullException(nameof(output));
@@ -61,10 +43,12 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             await output.WriteAsync(new byte[] { 1 }, 0, 1, cancellationToken).ConfigureAwait(false); // Version 1
 
             var tasks = new Queue<Task<byte[]>>();
-            
-            // Limit parallelism to ProcessorCount - 1 to keep system responsive (similar to WinRAR)
+
+            // Limit parallel tasks to (cores - 1) so we don’t saturate the CPU and keep the system/UI responsive.
             int maxTasks = Math.Max(1, Environment.ProcessorCount - 1);
             
+            long totalBytesRead = 0;
+
             while (true)
             {
                 byte[] buffer = ArrayPool<byte>.Shared.Rent(ParallelBlockSize);
@@ -85,14 +69,16 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                     break;
                 }
 
+                totalBytesRead += bytesRead;
+                progress?.Report(totalBytesRead);
+
                 int count = bytesRead;
 
                 var task = Task.Run(() => 
                 {
                     try
                     {
-                        var result = Compress(buffer, 0, count, cancellationToken);
-                        return result.CompressedData;
+                        return CompressBuffer(buffer, 0, count, cancellationToken);
                     }
                     finally
                     {
@@ -127,19 +113,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             await output.WriteAsync(compressedBlock, 0, compressedBlock.Length, cancellationToken).ConfigureAwait(false);
         }
 
-        public byte[] Decompress(CompressionMetadata metadata, byte[] compressedData, CancellationToken cancellationToken)
-        {
-            if (compressedData == null) throw new ArgumentNullException(nameof(compressedData));
-            using (MemoryStream input = new MemoryStream(compressedData, writable: false))
-            using (MemoryStream output = new MemoryStream(metadata?.OriginalSize ?? compressedData.Length * 2))
-            {
-                var decompressor = new DeflateDecompressor(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
-                decompressor.Decompress(input, output, cancellationToken);
-                return output.ToArray();
-            }
-        }
-
-        public async Task DecompressAsync(Stream input, Stream output, CancellationToken cancellationToken)
+        public async Task DecompressAsync(Stream input, Stream output, IProgress<long>? progress, CancellationToken cancellationToken)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (output == null) throw new ArgumentNullException(nameof(output));
@@ -180,6 +154,8 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                 byte[] lengthBuffer = new byte[4];
                 var tasks = new Queue<Task<byte[]>>();
                 int maxTasks = Math.Max(1, Environment.ProcessorCount - 1);
+                long totalBytesWritten = 0;
+
                 while (true)
                 {
                     read = await ReadFullAsync(input, lengthBuffer, cancellationToken).ConfigureAwait(false);
@@ -210,6 +186,8 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                     {
                         byte[] decompressedBlock = await tasks.Dequeue().ConfigureAwait(false);
                         await output.WriteAsync(decompressedBlock, 0, decompressedBlock.Length, cancellationToken).ConfigureAwait(false);
+                        totalBytesWritten += decompressedBlock.Length;
+                        progress?.Report(totalBytesWritten);
                     }
                 }
 
@@ -217,6 +195,8 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                 {
                     byte[] decompressedBlock = await tasks.Dequeue().ConfigureAwait(false);
                     await output.WriteAsync(decompressedBlock, 0, decompressedBlock.Length, cancellationToken).ConfigureAwait(false);
+                    totalBytesWritten += decompressedBlock.Length;
+                    progress?.Report(totalBytesWritten);
                 }
             }
             
@@ -234,5 +214,18 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             }
             return totalRead;
         }
+
+        private byte[] CompressBuffer(byte[] data, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (data == null) throw new ArgumentNullException(nameof(data));
+
+            using (MemoryStream output = new MemoryStream(count / 2 + 256))
+            {
+                var encoder = new DeflateEncoder(output, _fixedLitLenCodes, _fixedDistCodes, _level);
+                encoder.CompressBytes(data, offset, count, cancellationToken);
+                return output.ToArray();
+            }
+        }
     }
 }
+

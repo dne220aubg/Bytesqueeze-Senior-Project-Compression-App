@@ -37,10 +37,9 @@ namespace SeniorProjectCompressionApp
 
             _registry = new CompressionAlgorithmRegistry(algorithms);
 
-            IArchiveSerializer serializer = new BinaryArchiveSerializer();
             IEncryptionService encryptionService = new AesEncryptionService();
 
-            _orchestrator = new CompressionOrchestrator(_registry, _fileSystem, serializer, encryptionService);
+            _orchestrator = new CompressionOrchestrator(_registry, _fileSystem, encryptionService);
 
             InitializeUi();
         
@@ -625,9 +624,6 @@ namespace SeniorProjectCompressionApp
         }
     }
 }
-
-
-
 
 
 
