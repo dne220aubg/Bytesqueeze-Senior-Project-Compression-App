@@ -9,105 +9,73 @@ namespace SeniorProjectCompressionApp.Security
     public sealed class AesEncryptionService : IEncryptionService
     {
         private const int SaltSize = 16;
-        private const int IterationCount = 10000;
+        private const int DefaultIterationCount = 100000; // Adjusted for performance (approx 100ms)
+        private static readonly HashAlgorithmName DefaultHashAlgorithm = HashAlgorithmName.SHA256;
 
-        public byte[] Encrypt(byte[] data, string password, CancellationToken cancellationToken)
+        public Stream EncryptStream(Stream output, string password, CancellationToken cancellationToken)
         {
-            if (data == null)
-            {
-                throw new ArgumentNullException(nameof(data));
-            }
-
-            if (string.IsNullOrEmpty(password))
-            {
-                throw new ArgumentException("Password must be provided to encrypt data.", nameof(password));
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
+            if (output == null) throw new ArgumentNullException(nameof(output));
+            if (string.IsNullOrEmpty(password)) throw new ArgumentException("Password required.", nameof(password));
 
             byte[] salt = GenerateRandomBytes(SaltSize);
+            
+            // Write Salt immediately
+            output.Write(salt, 0, salt.Length);
 
-            using (Aes aes = Aes.Create())
+            using (var derive = new Rfc2898DeriveBytes(password, salt, DefaultIterationCount, DefaultHashAlgorithm))
             {
-                aes.KeySize = 256;
-                aes.GenerateIV();
+                byte[] key = derive.GetBytes(32); // AES-256
 
-                using (var keyDerivation = new Rfc2898DeriveBytes(password, salt, IterationCount))
+                using (Aes aes = Aes.Create())
                 {
-                    aes.Key = keyDerivation.GetBytes(aes.KeySize / 8);
-                }
+                    aes.Key = key;
+                    aes.GenerateIV();
 
-                using (MemoryStream output = new MemoryStream())
-                {
-                    output.Write(salt, 0, salt.Length);
+                    // Write IV
                     output.Write(aes.IV, 0, aes.IV.Length);
 
-                    using (CryptoStream cryptoStream = new CryptoStream(output, aes.CreateEncryptor(), CryptoStreamMode.Write))
-                    {
-                        cryptoStream.Write(data, 0, data.Length);
-                        cryptoStream.FlushFinalBlock();
-                    }
-
-                    // Result buffer layout: [salt][iv][ciphertext].
-                    return output.ToArray();
+                    // Return CryptoStream (caller must dispose/flush)
+                    return new CryptoStream(output, aes.CreateEncryptor(), CryptoStreamMode.Write, leaveOpen: true);
                 }
             }
         }
 
-        public byte[] Decrypt(byte[] cipher, string password, CancellationToken cancellationToken)
+        public Stream DecryptStream(Stream input, string password, int iterations, string hashAlgorithmName, CancellationToken cancellationToken)
         {
-            if (cipher == null)
-            {
-                throw new ArgumentNullException(nameof(cipher));
-            }
-
-            if (string.IsNullOrEmpty(password))
-            {
-                throw new ArgumentException("Password must be provided to decrypt data.", nameof(password));
-            }
-
-            if (cipher.Length < SaltSize * 2)
-            {
-                throw new InvalidOperationException("Encrypted data is too short to contain salt and IV.");
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
+            if (input == null) throw new ArgumentNullException(nameof(input));
+            if (string.IsNullOrEmpty(password)) throw new ArgumentException("Password required.", nameof(password));
 
             byte[] salt = new byte[SaltSize];
-            byte[] iv = new byte[SaltSize];
+            int read = input.Read(salt, 0, SaltSize);
+            if (read != SaltSize) throw new EndOfStreamException("Stream too short for salt.");
 
-            Array.Copy(cipher, 0, salt, 0, SaltSize);
-            Array.Copy(cipher, SaltSize, iv, 0, SaltSize);
+            byte[] iv = new byte[16]; // AES block size is 16 bytes
+            read = input.Read(iv, 0, 16);
+            if (read != 16) throw new EndOfStreamException("Stream too short for IV.");
 
-            using (Aes aes = Aes.Create())
+            HashAlgorithmName hashAlgo = new HashAlgorithmName(hashAlgorithmName);
+
+            using (var derive = new Rfc2898DeriveBytes(password, salt, iterations, hashAlgo))
             {
-                aes.KeySize = 256;
-                aes.IV = iv;
+                byte[] key = derive.GetBytes(32);
 
-                using (var keyDerivation = new Rfc2898DeriveBytes(password, salt, IterationCount))
+                using (Aes aes = Aes.Create())
                 {
-                    aes.Key = keyDerivation.GetBytes(aes.KeySize / 8);
-                }
+                    aes.Key = key;
+                    aes.IV = iv;
 
-                using (MemoryStream input = new MemoryStream(cipher, SaltSize * 2, cipher.Length - (SaltSize * 2)))
-                using (CryptoStream cryptoStream = new CryptoStream(input, aes.CreateDecryptor(), CryptoStreamMode.Read))
-                using (MemoryStream output = new MemoryStream())
-                {
-                    cryptoStream.CopyTo(output);
-                    return output.ToArray();
+                    return new CryptoStream(input, aes.CreateDecryptor(), CryptoStreamMode.Read, leaveOpen: true);
                 }
             }
         }
 
-        // Generates cryptographically strong random bytes for salts and IVs.
         private static byte[] GenerateRandomBytes(int length)
         {
             byte[] buffer = new byte[length];
-            using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
+            using (var rng = RandomNumberGenerator.Create())
             {
                 rng.GetBytes(buffer);
             }
-
             return buffer;
         }
     }

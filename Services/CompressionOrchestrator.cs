@@ -25,7 +25,7 @@ namespace SeniorProjectCompressionApp.Services
 
         private static readonly byte[] RawContainerHeader = Encoding.ASCII.GetBytes("SPCR1");
         private static readonly byte[] EncryptedContainerHeader = Encoding.ASCII.GetBytes("SPCE"); // Encrypted Magic Header
-        private const int StreamingFormatVersion = 2;
+        private const int StreamingFormatVersion = 3;
 
         public CompressionOrchestrator(
             ICompressionAlgorithmRegistry registry,
@@ -110,16 +110,22 @@ namespace SeniorProjectCompressionApp.Services
                     writer.Write(algorithm.Name);
                     writer.Write(rootName);
                     writer.Write(isDirectory);
+
+                    if (isEncrypted)
+                    {
+                        // V3: Write KDF Parameters
+                        writer.Write(100000); // Iterations
+                        writer.Write("SHA256"); // Hash Algorithm
+                    }
                 }
 
                 Stream dataStream = outputStream;
-                CryptoStream? cryptoStream = null;
 
                 if (isEncrypted)
                 {
                     // Setup encryption
-                    cryptoStream = CreateEncryptionStream(outputStream, password!, cancellationToken);
-                    dataStream = cryptoStream;
+                    // Use standardized service which writes Salt/IV
+                    dataStream = _encryptionService.EncryptStream(outputStream, password!, cancellationToken);
                     
                     // Write Encrypted Header for password verification
                     await dataStream.WriteAsync(EncryptedContainerHeader, 0, EncryptedContainerHeader.Length, cancellationToken);
@@ -169,10 +175,11 @@ namespace SeniorProjectCompressionApp.Services
                     originalBytes, 
                     cancellationToken);
 
-                if (cryptoStream != null)
+                if (dataStream != outputStream)
                 {
-                    if (!cryptoStream.HasFlushedFinalBlock) cryptoStream.FlushFinalBlock();
-                    cryptoStream.Dispose();
+                    // Flush and dispose the encryption stream (CryptoStream)
+                    if (dataStream is CryptoStream cs && !cs.HasFlushedFinalBlock) cs.FlushFinalBlock();
+                    dataStream.Dispose();
                 }
 
                 archiveBytes = outputStream.Length;
@@ -182,31 +189,7 @@ namespace SeniorProjectCompressionApp.Services
             return new CompressionSummary(destinationPath, algorithm.Name, originalBytes, archiveBytes, fileCount, isEncrypted, sw.ElapsedMilliseconds);
         }
 
-        private CryptoStream CreateEncryptionStream(Stream outputStream, string password, CancellationToken cancellationToken)
-        {
-            byte[] salt = new byte[16];
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(salt);
-            }
 
-            using (var derive = new Rfc2898DeriveBytes(password, salt, 1000, HashAlgorithmName.SHA256))
-            {
-                byte[] key = derive.GetBytes(32);
-                
-                using (Aes aes = Aes.Create())
-                {
-                    aes.Key = key;
-                    aes.GenerateIV();
-                    
-                    // Write Salt and IV
-                    outputStream.Write(salt, 0, salt.Length);
-                    outputStream.Write(aes.IV, 0, aes.IV.Length);
-
-                    return new CryptoStream(outputStream, aes.CreateEncryptor(), CryptoStreamMode.Write, leaveOpen: true);
-                }
-            }
-        }
 
         // Writes the archive content using a hybrid approach:
         // 1. Small files are compressed in parallel batches to maximize CPU usage.
@@ -481,33 +464,26 @@ namespace SeniorProjectCompressionApp.Services
                 string rootName = reader.ReadString();
                 bool isDirectory = reader.ReadBoolean();
 
+                int kdfIterations = 1000;
+                string kdfHash = "SHA256";
+
+                if (version >= 3 && isEncrypted)
+                {
+                    kdfIterations = reader.ReadInt32();
+                    kdfHash = reader.ReadString();
+                }
+
                 ICompressionAlgorithm? algorithm = _registry.GetAlgorithm(algorithmName);
                 if (algorithm == null) throw new InvalidOperationException($"Algorithm '{algorithmName}' not found or does not support streaming.");
 
                 Stream dataStream = stream;
-                CryptoStream? cryptoStream = null;
 
                 if (isEncrypted)
                 {
                     if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Password required.");
                     
-                    byte[] salt = new byte[16];
-                    if (stream.Read(salt, 0, 16) != 16) throw new EndOfStreamException("Invalid Salt");
-                    
-                    byte[] iv = new byte[16];
-                    if (stream.Read(iv, 0, 16) != 16) throw new EndOfStreamException("Invalid IV");
-
-                    using (var derive = new Rfc2898DeriveBytes(password, salt, 1000, HashAlgorithmName.SHA256))
-                    {
-                        byte[] key = derive.GetBytes(32);
-                        using (Aes aes = Aes.Create())
-                        {
-                            aes.Key = key;
-                            aes.IV = iv;
-                            cryptoStream = new CryptoStream(stream, aes.CreateDecryptor(), CryptoStreamMode.Read, leaveOpen: true);
-                            dataStream = cryptoStream;
-                        }
-                    }
+                    // Use service to decrypt (reads Salt/IV internally)
+                    dataStream = _encryptionService.DecryptStream(stream, password, kdfIterations, kdfHash, cancellationToken);
                 }
 
                 if (isEncrypted)
@@ -589,7 +565,7 @@ namespace SeniorProjectCompressionApp.Services
                     ReportProgress(progress, (double)(i + 1) / entryCount);
                 }
                 
-                if (cryptoStream != null) cryptoStream.Dispose();
+                if (dataStream != stream) dataStream.Dispose();
             }
             
             sw.Stop();

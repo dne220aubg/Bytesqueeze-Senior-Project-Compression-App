@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 
 namespace SeniorProjectCompressionApp.Security
@@ -5,10 +6,10 @@ namespace SeniorProjectCompressionApp.Security
     // Provides symmetric encryption and decryption services for archive payloads.
     public interface IEncryptionService
     {
-        // Encrypts data using the provided password.
-        byte[] Encrypt(byte[] data, string password, CancellationToken cancellationToken);
+        // Encrypts data to the output stream using the provided password.
+        Stream EncryptStream(Stream output, string password, CancellationToken cancellationToken);
 
-        // Decrypts data that was previously encrypted with the same password.
-        byte[] Decrypt(byte[] cipher, string password, CancellationToken cancellationToken);
+        // Decrypts data from the input stream using the provided password and KDF parameters.
+        Stream DecryptStream(Stream input, string password, int iterations, string hashAlgorithmName, CancellationToken cancellationToken);
     }
 }
