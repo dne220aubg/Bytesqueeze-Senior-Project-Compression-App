@@ -1,3 +1,4 @@
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -6,11 +7,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using SeniorProjectCompressionApp.Compression.Algorithms;
 
-namespace SeniorProjectCompressionApp.Tests
+namespace SeniorProjectCompressionApp.Tests.Performance
 {
-    public class PerformanceTest
+    [TestClass]
+    public class CompressionBenchmark
     {
-        public static void Run()
+        [TestMethod]
+        public async Task BenchmarkTest()
         {
             Console.WriteLine("Generating test data (13MB)...");
             byte[] data = GenerateTextData(13 * 1024 * 1024); // 13MB
@@ -21,12 +24,12 @@ namespace SeniorProjectCompressionApp.Tests
             
             // Warmup
             Console.WriteLine("Warming up...");
-            Compress(compressor, new byte[1024 * 1024]);
+            await CompressAsync(compressor, new byte[1024 * 1024]);
             
             Console.WriteLine("Starting benchmark...");
             var sw = Stopwatch.StartNew();
             
-            byte[] compressed = Compress(compressor, data);
+            byte[] compressed = await CompressAsync(compressor, data);
             
             sw.Stop();
             
@@ -38,19 +41,19 @@ namespace SeniorProjectCompressionApp.Tests
             
             if (sw.ElapsedMilliseconds > 1000)
             {
-                Console.WriteLine("⚠️  GOAL FAILED: Time > 1000ms");
+                Console.WriteLine("GOAL FAILED: Time > 1000ms");
             }
             else
             {
-                Console.WriteLine("✅  GOAL MET: Time < 1000ms");
+                Console.WriteLine("GOAL MET: Time < 1000ms");
             }
         }
         
-        private static byte[] Compress(DeflateAlgorithm compressor, byte[] data)
+        private static async Task<byte[]> CompressAsync(DeflateAlgorithm compressor, byte[] data)
         {
             using (var ms = new MemoryStream())
             {
-                compressor.CompressAsync(new MemoryStream(data), ms, null, CancellationToken.None).Wait();
+                await compressor.CompressAsync(new MemoryStream(data), ms, null, CancellationToken.None);
                 return ms.ToArray();
             }
         }
@@ -58,7 +61,7 @@ namespace SeniorProjectCompressionApp.Tests
         private static byte[] GenerateTextData(int size)
         {
             var sb = new StringBuilder(size);
-            string[] words = { "compression", "algorithm", "performance", "optimization", "fast", "speed", "ratio", "deflate", "lz77", "huffman", "code", "csharp", "dotnet", "framework", "windows", "leads", "canada", "confirm", "email", "address", "phone", "number", "contact", "business", "marketing", "sales", "database", "record", "client", "customer" };
+            string[] words = { "compression", "algorithm", "performance", "optimization", "fast", "speed", "ratio", "deflate", "lz77", "huffman", "code", "csharp", "dotnet", "framework", "windows", "email", "address", "phone", "number", "contact", "business", "marketing", "sales", "database", "record", "client", "customer" };
             var rand = new Random(12345);
             
             while (sb.Length < size)

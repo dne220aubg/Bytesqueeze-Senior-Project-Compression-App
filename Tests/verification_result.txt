@@ -1,7 +1,0 @@
-Starting verification...
-Generated 2238890 bytes of data.
-Compression took: 755 ms
-Compressed size: 128136 bytes
-Ratio: 5.72%
-Decompression took: 36 ms
-SUCCESS: Decompressed data matches original.

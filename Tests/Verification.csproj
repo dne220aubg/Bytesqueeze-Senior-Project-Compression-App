@@ -1,26 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net7.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <StartupObject>SeniorProjectCompressionApp.Verification</StartupObject>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Verification.cs" />
-    <Compile Include="PerformanceTest.cs" />
-    <Compile Include="StreamedFilePerformanceTest.cs" />
-    <Compile Include="FullOrchestratorTest.cs" />
-    <Compile Include="FolderCompressionTest.cs" />
-    <Compile Include="LargeFileTest.cs" />
-    <Compile Include="EncryptedFileTest.cs" />
-    <Compile Include="EncryptionCompatibilityTest.cs" />
-    <Compile Include="LifecycleTest.cs" />
-    <Compile Include="KdfBenchmark.cs" />
+    <Compile Include="Unit\**\*.cs" />
+    <Compile Include="Integration\**\*.cs" />
+    <Compile Include="Performance\**\*.cs" />
     <Compile Include="..\Compression\**\*.cs" />
     <Compile Include="..\Models\**\*.cs" />
     <Compile Include="..\IO\**\*.cs" />
@@ -30,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.7.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.1.1" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.1.1" />
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="System.Buffers" Version="4.5.1" />
   </ItemGroup>
 

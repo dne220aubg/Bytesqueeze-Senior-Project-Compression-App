@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace SeniorProjectCompressionApp.Security
 {
@@ -12,15 +13,15 @@ namespace SeniorProjectCompressionApp.Security
         private const int DefaultIterationCount = 100000; // Adjusted for performance (approx 100ms)
         private static readonly HashAlgorithmName DefaultHashAlgorithm = HashAlgorithmName.SHA256;
 
-        public Stream EncryptStream(Stream output, string password, CancellationToken cancellationToken)
+        public async Task<Stream> EncryptStreamAsync(Stream output, string password, CancellationToken cancellationToken)
         {
             if (output == null) throw new ArgumentNullException(nameof(output));
             if (string.IsNullOrEmpty(password)) throw new ArgumentException("Password required.", nameof(password));
 
             byte[] salt = GenerateRandomBytes(SaltSize);
             
-            // Write Salt immediately
-            output.Write(salt, 0, salt.Length);
+            // Write Salt immediately (Async)
+            await output.WriteAsync(salt, 0, salt.Length, cancellationToken).ConfigureAwait(false);
 
             using (var derive = new Rfc2898DeriveBytes(password, salt, DefaultIterationCount, DefaultHashAlgorithm))
             {
@@ -31,8 +32,8 @@ namespace SeniorProjectCompressionApp.Security
                     aes.Key = key;
                     aes.GenerateIV();
 
-                    // Write IV
-                    output.Write(aes.IV, 0, aes.IV.Length);
+                    // Write IV (Async)
+                    await output.WriteAsync(aes.IV, 0, aes.IV.Length, cancellationToken).ConfigureAwait(false);
 
                     // Return CryptoStream (caller must dispose/flush)
                     return new CryptoStream(output, aes.CreateEncryptor(), CryptoStreamMode.Write, leaveOpen: true);
@@ -40,17 +41,17 @@ namespace SeniorProjectCompressionApp.Security
             }
         }
 
-        public Stream DecryptStream(Stream input, string password, int iterations, string hashAlgorithmName, CancellationToken cancellationToken)
+        public async Task<Stream> DecryptStreamAsync(Stream input, string password, int iterations, string hashAlgorithmName, CancellationToken cancellationToken)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (string.IsNullOrEmpty(password)) throw new ArgumentException("Password required.", nameof(password));
 
             byte[] salt = new byte[SaltSize];
-            int read = input.Read(salt, 0, SaltSize);
+            int read = await ReadFullAsync(input, salt, cancellationToken).ConfigureAwait(false);
             if (read != SaltSize) throw new EndOfStreamException("Stream too short for salt.");
 
-            byte[] iv = new byte[16]; // AES block size is 16 bytes
-            read = input.Read(iv, 0, 16);
+            byte[] iv = new byte[16];
+            read = await ReadFullAsync(input, iv, cancellationToken).ConfigureAwait(false);
             if (read != 16) throw new EndOfStreamException("Stream too short for IV.");
 
             HashAlgorithmName hashAlgo = new HashAlgorithmName(hashAlgorithmName);
@@ -67,6 +68,18 @@ namespace SeniorProjectCompressionApp.Security
                     return new CryptoStream(input, aes.CreateDecryptor(), CryptoStreamMode.Read, leaveOpen: true);
                 }
             }
+        }
+
+        private static async Task<int> ReadFullAsync(Stream stream, byte[] buffer, CancellationToken token)
+        {
+            int totalRead = 0;
+            while (totalRead < buffer.Length)
+            {
+                int read = await stream.ReadAsync(buffer, totalRead, buffer.Length - totalRead, token).ConfigureAwait(false);
+                if (read == 0) break;
+                totalRead += read;
+            }
+            return totalRead;
         }
 
         private static byte[] GenerateRandomBytes(int length)

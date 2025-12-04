@@ -125,7 +125,7 @@ namespace SeniorProjectCompressionApp.Services
                 {
                     // Setup encryption
                     // Use standardized service which writes Salt/IV
-                    dataStream = _encryptionService.EncryptStream(outputStream, password!, cancellationToken);
+                    dataStream = await _encryptionService.EncryptStreamAsync(outputStream, password!, cancellationToken);
                     
                     // Write Encrypted Header for password verification
                     await dataStream.WriteAsync(EncryptedContainerHeader, 0, EncryptedContainerHeader.Length, cancellationToken);
@@ -415,7 +415,7 @@ namespace SeniorProjectCompressionApp.Services
             Directory.CreateDirectory(destinationDirectory);
 
             // Check for Format
-            using (FileStream fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (FileStream fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
                 byte[] header = new byte[RawContainerHeader.Length];
                 int read = fs.Read(header, 0, header.Length);
@@ -446,31 +446,34 @@ namespace SeniorProjectCompressionApp.Services
             bool wasEncrypted = false;
             string targetRoot = destinationDirectory;
 
-            // Use BinaryReader but be careful with stream ownership
-            using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true))
-            {
-                // Verify Header (again)
-                byte[] header = reader.ReadBytes(RawContainerHeader.Length);
+            /* FIX: Replaced BinaryReader with manual reading to avoid buffering issues.
+             BinaryReader buffers data, which can steal bytes from the underlying stream
+             that belong to the encrypted payload, causing decryption failures.
+             We now use manual ReadFullAsync calls for headers/metadata.*/
+            
+            // Verify Header (again)
+            byte[] header = new byte[RawContainerHeader.Length];
+                await ReadFullAsync(stream, header, cancellationToken);
                 if (!header.SequenceEqual(RawContainerHeader)) throw new InvalidDataException("Invalid header.");
 
-                int version = reader.ReadInt32();
+                int version = await ReadInt32Async(stream);
                 if (version < 1 || version > StreamingFormatVersion)
                 {
                     throw new InvalidDataException($"Unsupported streaming archive version: {version}.");
                 }
-                bool isEncrypted = reader.ReadBoolean();
+                bool isEncrypted = await ReadBooleanAsync(stream);
                 wasEncrypted = isEncrypted;
-                algorithmName = reader.ReadString();
-                string rootName = reader.ReadString();
-                bool isDirectory = reader.ReadBoolean();
+                algorithmName = await ReadStringAsync(stream);
+                string rootName = await ReadStringAsync(stream);
+                bool isDirectory = await ReadBooleanAsync(stream);
 
                 int kdfIterations = 1000;
                 string kdfHash = "SHA256";
 
                 if (version >= 3 && isEncrypted)
                 {
-                    kdfIterations = reader.ReadInt32();
-                    kdfHash = reader.ReadString();
+                    kdfIterations = await ReadInt32Async(stream);
+                    kdfHash = await ReadStringAsync(stream);
                 }
 
                 ICompressionAlgorithm? algorithm = _registry.GetAlgorithm(algorithmName);
@@ -483,7 +486,7 @@ namespace SeniorProjectCompressionApp.Services
                     if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Password required.");
                     
                     // Use service to decrypt (reads Salt/IV internally)
-                    dataStream = _encryptionService.DecryptStream(stream, password, kdfIterations, kdfHash, cancellationToken);
+                    dataStream = await _encryptionService.DecryptStreamAsync(stream, password, kdfIterations, kdfHash, cancellationToken);
                 }
 
                 if (isEncrypted)
@@ -566,7 +569,7 @@ namespace SeniorProjectCompressionApp.Services
                 }
                 
                 if (dataStream != stream) dataStream.Dispose();
-            }
+
             
             sw.Stop();
             return new DecompressionSummary(targetRoot, algorithmName, archiveSize, restoredBytes, fileCount, wasEncrypted, sw.ElapsedMilliseconds);
@@ -661,5 +664,18 @@ namespace SeniorProjectCompressionApp.Services
             } while ((b & 0x80) != 0);
             return count;
         }
+        // Helper to ensure we read exactly the requested number of bytes avoiding partial reads which can happen with CryptoStreams.
+        private static async Task<int> ReadFullAsync(Stream stream, byte[] buffer, CancellationToken token)
+        {
+            int totalRead = 0;
+            while (totalRead < buffer.Length)
+            {
+                int read = await stream.ReadAsync(buffer, totalRead, buffer.Length - totalRead, token).ConfigureAwait(false);
+                if (read == 0) break;
+                totalRead += read;
+            }
+            return totalRead;
+        }
+
     }
 }
