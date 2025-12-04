@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using SeniorProjectCompressionApp.Compression;
@@ -7,7 +8,7 @@ using SeniorProjectCompressionApp.Models;
 
 namespace SeniorProjectCompressionApp.Decompression
 {
-    internal sealed class DeflateDecompressor
+    internal sealed class DeflateDecoder
     {
         private const int WindowSize = 32768;
         private static readonly int[] CodeLengthOrder = new int[] { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
@@ -21,7 +22,7 @@ namespace SeniorProjectCompressionApp.Decompression
         private readonly DecodeTable _fixedLitDecode;
         private readonly DecodeTable _fixedDistDecode;
 
-        public DeflateDecompressor(HuffmanCode[] fixedLit, HuffmanCode[] fixedDist, DecodeTable fixedLitDecode, DecodeTable fixedDistDecode)
+        public DeflateDecoder(HuffmanCode[] fixedLit, HuffmanCode[] fixedDist, DecodeTable fixedLitDecode, DecodeTable fixedDistDecode)
         {
             _fixedLitLenCodes = fixedLit;
             _fixedDistCodes = fixedDist;
@@ -201,19 +202,19 @@ namespace SeniorProjectCompressionApp.Decompression
                     if (!reader.TryReadBits(2, out uint r)) throw new InvalidOperationException("Unexpected end.");
                     int repeat = (int)r + 3;
                     int prev = lengths[index - 1];
-                    for (int k = 0; k < repeat; k++) lengths[index++] = prev;
+                    for (int k = 0; k < repeat && index < totalCodes; k++) lengths[index++] = prev;
                 }
                 else if (sym.Symbol == 17)
                 {
                     if (!reader.TryReadBits(3, out uint r)) throw new InvalidOperationException("Unexpected end.");
                     int repeat = (int)r + 3;
-                    for (int k = 0; k < repeat; k++) lengths[index++] = 0;
+                    for (int k = 0; k < repeat && index < totalCodes; k++) lengths[index++] = 0;
                 }
                 else if (sym.Symbol == 18)
                 {
                     if (!reader.TryReadBits(7, out uint r)) throw new InvalidOperationException("Unexpected end.");
                     int repeat = (int)r + 11;
-                    for (int k = 0; k < repeat; k++) lengths[index++] = 0;
+                    for (int k = 0; k < repeat && index < totalCodes; k++) lengths[index++] = 0;
                 }
             }
 
@@ -227,9 +228,25 @@ namespace SeniorProjectCompressionApp.Decompression
 
             HuffmanCode[] litCodes = DeflateHelpers.BuildCanonicalCodes(litLengths);
             HuffmanCode[] distCodes = DeflateHelpers.BuildCanonicalCodes(distLengths);
-            return new DynamicHuffmanModel(litCodes, distCodes, null, null, 0, hlitCount, hdistCount, null, null, 0, DeflateHelpers.BuildDecodeTable(litCodes, 10), DeflateHelpers.BuildDecodeTable(distCodes, 8));
+            return new DynamicHuffmanModel(
+                litCodes,
+                distCodes,
+                null,
+                null,
+                0,
+                hlitCount,
+                hdistCount,
+                new List<int>(),   //   Decoder never reads this so we just pass a new empty list -> lengthSymbols: empty but non-null
+                new List<int>(),   // again lengthExtras: empty but non-null
+                0,
+                DeflateHelpers.BuildDecodeTable(litCodes, 10),
+                DeflateHelpers.BuildDecodeTable(distCodes, 8));
         }
 
-        private static bool AllZero(int[] values) { foreach (int v in values) if (v != 0) return false; return true; }
+        private static bool AllZero(int[] values)
+        {
+            foreach (int v in values) if (v != 0) return false;
+            return true;
+        }
     }
 }

@@ -4,45 +4,30 @@ using System.Text;
 
 namespace SeniorProjectCompressionApp.Compression
 {
-    // Encodes and decodes frequency tables into a compact binary representation for storage alongside compressed data.
+    // Handles serialization of frequency tables (histogram of byte occurrences) used for Huffman tree reconstruction.
+    // Uses a compact binary format to save space.
     public static class FrequencyTableSerializer
     {
-        // Header used to identify the compact encoding introduced to reduce metadata overhead.
+        // Magic header "SPF1" to distinguish the compact format.
         private static readonly byte[] CompactFormatHeader = new byte[] { (byte)'S', (byte)'P', (byte)'F', (byte)'1' };
 
-        // Converts a frequency table into a Base64 string.
+        // Serializes the frequency table into a Base64 string for storage in the file header.
         public static string Encode(int[] frequencies)
         {
-            if (frequencies == null)
-            {
-                throw new ArgumentNullException(nameof(frequencies));
-            }
+            if (frequencies == null) throw new ArgumentNullException(nameof(frequencies));
+            if (frequencies.Length > byte.MaxValue + 1) throw new InvalidOperationException("Alphabet size too large for current implementation.");
 
-            if (frequencies.Length > byte.MaxValue + 1)
-            {
-                throw new InvalidOperationException("Frequency table length exceeds supported alphabet size.");
-            }
-
+            // Count non-zero entries to estimate size of compact format (sparse representation).
             int nonZeroCount = 0;
             for (int i = 0; i < frequencies.Length; i++)
             {
-                if (frequencies[i] != 0)
-                {
-                    nonZeroCount++;
-                }
+                if (frequencies[i] != 0) nonZeroCount++;
             }
 
-            int legacyByteLength = frequencies.Length * sizeof(int);
+            // Compact size: Header + Length(int) + Count(int) + [Symbol(byte) + Freq(int)] per entry.
             int compactByteLength = CompactFormatHeader.Length + (sizeof(int) * 2) + (nonZeroCount * (sizeof(byte) + sizeof(int)));
 
-            // Fall back to the legacy layout when it is smaller or equal in size to avoid regressions on high-entropy data.
-            if (compactByteLength >= legacyByteLength)
-            {
-                byte[] legacyBuffer = new byte[legacyByteLength];
-                Buffer.BlockCopy(frequencies, 0, legacyBuffer, 0, legacyBuffer.Length);
-                return Convert.ToBase64String(legacyBuffer);
-            }
-
+            // Write compact format: Header -> Table Length -> Entry Count -> (Symbol, Frequency) pairs.
             using (MemoryStream stream = new MemoryStream(compactByteLength))
             {
                 stream.Write(CompactFormatHeader, 0, CompactFormatHeader.Length);
@@ -54,16 +39,10 @@ namespace SeniorProjectCompressionApp.Compression
 
                     for (int i = 0; i < frequencies.Length; i++)
                     {
-                        int frequency = frequencies[i];
-                        if (frequency == 0)
-                        {
-                            continue;
-                        }
-
+                        if (frequencies[i] == 0) continue;
                         writer.Write((byte)i);
-                        writer.Write(frequency);
+                        writer.Write(frequencies[i]);
                     }
-
                     writer.Flush();
                 }
 
@@ -71,77 +50,49 @@ namespace SeniorProjectCompressionApp.Compression
             }
         }
 
-        // Restores a frequency table previously created with Encode.
+        // Deserializes the frequency table from a Base64 string.
         public static int[] Decode(string encoded)
         {
-            if (encoded == null)
-            {
-                throw new ArgumentNullException(nameof(encoded));
-            }
+            if (encoded == null) throw new ArgumentNullException(nameof(encoded));
 
             byte[] buffer = Convert.FromBase64String(encoded);
 
-            if (IsCompactFormat(buffer))
+            // Validate header.
+            if (!IsCompactFormat(buffer))
             {
-                return DecodeCompact(buffer);
+                throw new InvalidDataException("Invalid frequency table format. Expected compact format header.");
             }
 
-            int[] frequencies = new int[buffer.Length / sizeof(int)];
-            Buffer.BlockCopy(buffer, 0, frequencies, 0, buffer.Length);
-            return frequencies;
+            return DecodeCompact(buffer);
         }
 
         private static bool IsCompactFormat(byte[] buffer)
         {
-            if (buffer.Length < CompactFormatHeader.Length)
-            {
-                return false;
-            }
+            if (buffer.Length < CompactFormatHeader.Length) return false;
 
             for (int i = 0; i < CompactFormatHeader.Length; i++)
             {
-                if (buffer[i] != CompactFormatHeader[i])
-                {
-                    return false;
-                }
+                if (buffer[i] != CompactFormatHeader[i]) return false;
             }
-
             return true;
         }
 
         private static int[] DecodeCompact(byte[] buffer)
         {
+            // Skip header and read the sparse table.
             using (MemoryStream stream = new MemoryStream(buffer, CompactFormatHeader.Length, buffer.Length - CompactFormatHeader.Length, writable: false))
             using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true))
             {
                 int length = reader.ReadInt32();
-                if (length <= 0)
-                {
-                    throw new InvalidOperationException("Invalid frequency table length.");
-                }
-                if (length > byte.MaxValue + 1)
-                {
-                    throw new InvalidOperationException("Frequency table length exceeds supported alphabet size.");
-                }
+                if (length <= 0 || length > byte.MaxValue + 1) throw new InvalidOperationException("Invalid table length.");
 
                 int[] frequencies = new int[length];
-
                 int entryCount = reader.ReadInt32();
-                if (entryCount < 0 || entryCount > length)
-                {
-                    throw new InvalidOperationException("Invalid frequency table entry count.");
-                }
 
                 for (int i = 0; i < entryCount; i++)
                 {
                     byte symbol = reader.ReadByte();
                     int frequency = reader.ReadInt32();
-
-                    if (symbol >= length)
-                    {
-                        throw new InvalidOperationException("Frequency table symbol exceeds declared alphabet length.");
-                    }
-
                     frequencies[symbol] = frequency;
                 }
 

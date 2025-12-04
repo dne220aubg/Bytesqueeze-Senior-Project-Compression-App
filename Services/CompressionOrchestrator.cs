@@ -37,6 +37,7 @@ namespace SeniorProjectCompressionApp.Services
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
         }
 
+        // Entry point for compression. Validates inputs and determines if we are compressing a file or folder.
         public async Task<CompressionSummary> CompressAsync(
             string inputPath,
             string algorithmName,
@@ -59,27 +60,28 @@ namespace SeniorProjectCompressionApp.Services
             string normalizedPath = isDirectory ? new DirectoryInfo(inputPath).FullName : new FileInfo(inputPath).FullName;
             string rootName = isDirectory ? new DirectoryInfo(normalizedPath).Name : Path.GetFileName(normalizedPath);
 
-            if (algorithm is not IStreamingCompressionAlgorithm streamingAlgorithm)
-            {
-                throw new NotSupportedException("Selected algorithm does not support streaming compression.");
-            }
+            // if (algorithm is not IStreamingCompressionAlgorithm streamingAlgorithm)
+            // {
+            //     throw new NotSupportedException("Selected algorithm does not support streaming compression.");
+            // }
 
             return await CompressStreamAsync(
                 normalizedPath,
                 rootName,
                 isDirectory,
-                streamingAlgorithm,
+                algorithm,
                 password,
                 outputPath,
                 progress,
                 cancellationToken).ConfigureAwait(false);
         }
 
+        // Sets up the output stream, writes the archive header, and orchestrates the compression of entries.
         private async Task<CompressionSummary> CompressStreamAsync(
             string normalizedPath,
             string rootName,
             bool isDirectory,
-            IStreamingCompressionAlgorithm algorithm,
+            ICompressionAlgorithm algorithm,
             string? password,
             string? outputPath,
             IProgress<double>? progress,
@@ -206,11 +208,14 @@ namespace SeniorProjectCompressionApp.Services
             }
         }
 
+        // Writes the archive content using a hybrid approach:
+        // 1. Small files are compressed in parallel batches to maximize CPU usage.
+        // 2. Large files are compressed sequentially to avoid excessive memory consumption.
         private async Task WriteStreamingArchiveAsync(
             List<ArchiveEntry> entries,
             List<string> filePaths,
             Stream dataStream,
-            IStreamingCompressionAlgorithm algorithm,
+            ICompressionAlgorithm algorithm,
             bool isEncrypted,
             IProgress<double>? progress,
             long totalBytes,
@@ -336,12 +341,14 @@ namespace SeniorProjectCompressionApp.Services
             }
         }
 
+        // Compresses a single large file sequentially.
+        // Writes a placeholder for the compressed length, compresses data, and then seeks back to update the length.
         private async Task<long> ProcessSingleFileSequentialAsync(
             ArchiveEntry entry,
             string fullPath,
             BinaryWriter writer,
             Stream dataStream,
-            IStreamingCompressionAlgorithm algorithm,
+            ICompressionAlgorithm algorithm,
             bool isEncrypted,
             IProgress<double>? progress,
             long totalBytes,
@@ -409,6 +416,7 @@ namespace SeniorProjectCompressionApp.Services
             return entry.OriginalLength;
         }
 
+        // Entry point for decompression. Validates the archive file and prepares the destination.
         public async Task<DecompressionSummary> DecompressAsync(
             string archivePath,
             string destinationDirectory,
@@ -439,6 +447,7 @@ namespace SeniorProjectCompressionApp.Services
             throw new InvalidDataException("Invalid or unsupported archive format.");
         }
 
+        // Reads the archive stream sequentially, verifying headers and decompressing each entry.
         private async Task<DecompressionSummary> DecompressStreamingArchiveAsync(
             Stream stream,
             string destinationDirectory,
@@ -472,7 +481,7 @@ namespace SeniorProjectCompressionApp.Services
                 string rootName = reader.ReadString();
                 bool isDirectory = reader.ReadBoolean();
 
-                IStreamingCompressionAlgorithm? algorithm = _registry.GetAlgorithm(algorithmName) as IStreamingCompressionAlgorithm;
+                ICompressionAlgorithm? algorithm = _registry.GetAlgorithm(algorithmName);
                 if (algorithm == null) throw new InvalidOperationException($"Algorithm '{algorithmName}' not found or does not support streaming.");
 
                 Stream dataStream = stream;

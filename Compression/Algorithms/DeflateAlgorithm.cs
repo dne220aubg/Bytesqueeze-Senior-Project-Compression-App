@@ -11,7 +11,7 @@ using SeniorProjectCompressionApp.Models;
 namespace SeniorProjectCompressionApp.Compression.Algorithms
 {
     // A RFC1951-style deflate algorithm implementation using fixed Huffman blocks .
-    public sealed class DeflateRfc1951Algorithm : IStreamingCompressionAlgorithm
+    public sealed class DeflateAlgorithm : ICompressionAlgorithm
     {
         private const int ParallelBlockSize = 4 * 1024 * 1024; // 4 MB chunks
         private static readonly byte[] MagicHeader = { 0x50, 0x44, 0x45, 0x46 }; // PDEF
@@ -24,7 +24,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
         public string Name => _level.ToString();
 
-        public DeflateRfc1951Algorithm(CompressionLevel level = CompressionLevel.Normal)
+        public DeflateAlgorithm(CompressionLevel level = CompressionLevel.Normal)
         {
             _level = level;
             _fixedLitLenCodes = DeflateHelpers.BuildFixedLiteralLengthCodes();
@@ -129,7 +129,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                 if (read != header.Length || !header.SequenceEqual(MagicHeader))
                 {
                     input.Position = startPos;
-                    var decompressor = new DeflateDecompressor(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
+                    var decompressor = new DeflateDecoder(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
                     await Task.Run(() => decompressor.Decompress(input, output, cancellationToken), cancellationToken).ConfigureAwait(false);
                     return;
                 }
@@ -174,7 +174,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                         using (var msInput = new MemoryStream(compressedBlock))
                         using (var msOutput = new MemoryStream(compressedBlock.Length * 4)) 
                         {
-                            var decompressor = new DeflateDecompressor(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
+                            var decompressor = new DeflateDecoder(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
                             decompressor.Decompress(msInput, msOutput, cancellationToken);
                             return msOutput.ToArray();
                         }

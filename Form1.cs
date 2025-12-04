@@ -30,9 +30,9 @@ namespace SeniorProjectCompressionApp
 
             ICompressionAlgorithm[] algorithms = new ICompressionAlgorithm[]
             {
-                new DeflateRfc1951Algorithm(CompressionLevel.Fast),
-                new DeflateRfc1951Algorithm(CompressionLevel.Normal),
-                new DeflateRfc1951Algorithm(CompressionLevel.Best)
+                new DeflateAlgorithm(CompressionLevel.Fast),
+                new DeflateAlgorithm(CompressionLevel.Normal),
+                new DeflateAlgorithm(CompressionLevel.Best)
             };
 
             _registry = new CompressionAlgorithmRegistry(algorithms);
@@ -64,7 +64,7 @@ namespace SeniorProjectCompressionApp
             this.ActiveControl = null;
         }
 
-        // Populates combo boxes, resets progress state, and displays a ready status.
+        // Populates the algorithm dropdown and resets the UI to a clean state.
         private void InitializeUi()
         {
             cmbCompressionAlgorithm.Items.Clear();
@@ -151,7 +151,8 @@ namespace SeniorProjectCompressionApp
             }
         }
 
-        // Validates inputs and begins the asynchronous compression workflow.
+        // Validates input paths and starts the compression process.
+        // Handles UI locking and cancellation token creation.
         private async void btnStartCompression_Click(object sender, EventArgs e)
         {
             if (_cancellationTokenSource != null)
@@ -222,7 +223,7 @@ namespace SeniorProjectCompressionApp
                 isCompression: true);
         }
 
-        // Validates inputs and begins the asynchronous decompression workflow.
+        // Validates archive path and destination, then starts decompression.
         private async void btnStartDecompression_Click(object sender, EventArgs e)
         {
             if (_cancellationTokenSource != null)
@@ -310,7 +311,8 @@ namespace SeniorProjectCompressionApp
 
         private CancellationTokenSource? _cancellationTokenSource;
 
-        // Executes a long-running operation while updating the UI with progress and status text.
+        // Generic wrapper for long-running async operations.
+        // Handles progress reporting, success/failure messages, and safe UI state toggling.
         private async Task ExecuteOperationAsync<T>(
             Func<CancellationToken, Task<T>> operation,
             string startMessage,
@@ -367,7 +369,8 @@ namespace SeniorProjectCompressionApp
 
         private bool _isOperationRunning = false;
 
-        // Toggles UI state between "Running" and "Ready".
+        // Locks the UI during operations to prevent conflicting actions.
+        // Also transforms the Start button into a Cancel button.
         private void SetUiState(bool isRunning, bool isCompression)
         {
             _isOperationRunning = isRunning;
@@ -466,7 +469,7 @@ namespace SeniorProjectCompressionApp
                 $"Original Size: {FormatBytes(summary.OriginalBytes)}" + Environment.NewLine +
                 $"Archive Size: {FormatBytes(summary.ArchiveBytes)}" + Environment.NewLine +
                 $"Compression Ratio: {FormatRatio(summary.CompressionRatio)}" + Environment.NewLine +
-                $"Algorithm Time: {summary.ElapsedMilliseconds} ms";
+                $"Elapsed Time: {summary.ElapsedMilliseconds} ms";
 
             MessageBox.Show(this, message, "Compression Completed", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -497,7 +500,7 @@ namespace SeniorProjectCompressionApp
                 $"Archive Size: {FormatBytes(summary.ArchiveBytes)}" + Environment.NewLine +
                 $"Restored Size: {FormatBytes(summary.RestoredBytes)}" + Environment.NewLine +
                 $"Expansion Ratio: {FormatRatio(summary.ExpansionRatio)}" + Environment.NewLine +
-                $"Algorithm Time: {summary.ElapsedMilliseconds} ms";
+                $"Elapsed Time: {summary.ElapsedMilliseconds} ms";
 
             MessageBox.Show(this, message, "Decompression Completed", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
