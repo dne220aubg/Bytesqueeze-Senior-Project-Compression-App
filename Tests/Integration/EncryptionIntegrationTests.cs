@@ -18,6 +18,15 @@ namespace SeniorProjectCompressionApp.Tests.Integration
     public class EncryptionIntegrationTests
     {
         [TestMethod]
+        /* EndToEndEncryptionTest tests the entire encryption workflow:
+         * 1. Creates test data
+         * 2. Sets up dependencies
+         * 3. Compresses data
+         * 4. Verifies compression
+         * 5. Decompresses data
+         * 6. Verifies decompression
+         * 7. Verifies content
+         * 8. Verifies wrong password handling*/
         public async Task EndToEndEncryptionTest()
         {
             Console.WriteLine("  Testing End-to-End Encryption...");
@@ -54,7 +63,7 @@ namespace SeniorProjectCompressionApp.Tests.Integration
                 Assert.IsTrue(summary.WasEncrypted, "Summary should indicate encryption");
                 Assert.IsTrue(File.Exists(outputPath), "Output file should exist");
                 
-                // Give file system a moment to settle (fixes flakiness on some systems)
+                // Give file system a moment to settle (fixes unpredictability on some slower systems)
                 await Task.Delay(100);
 
                 // 2. Verify Decompression

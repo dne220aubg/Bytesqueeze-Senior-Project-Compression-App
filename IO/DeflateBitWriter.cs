@@ -4,7 +4,7 @@ using System.IO;
 
 namespace SeniorProjectCompressionApp.IO
 {
-    // Writes bits in Deflate (LSB-first) order.
+    // Writes bits in Deflate (least significant bit first) order.
     internal sealed class DeflateBitWriter
     {
         private readonly List<byte> _bytes = new List<byte>(1024);

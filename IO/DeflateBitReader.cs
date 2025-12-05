@@ -3,7 +3,7 @@ using System.IO;
 
 namespace SeniorProjectCompressionApp.IO
 {
-    // Reads bits in Deflate (LSB-first) order from a stream.
+    // Reads bits in Deflate (least significant bit first) order from a stream.
     internal sealed class DeflateBitReader
     {
         private readonly Stream _stream;

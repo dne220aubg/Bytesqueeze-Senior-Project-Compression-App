@@ -15,6 +15,9 @@ using SeniorProjectCompressionApp.Security;
 
 namespace SeniorProjectCompressionApp.Services
 {
+    /* CompressionOrchestrator wraps the whole workflow: it builds the archive header, optionally wraps streams in AES,
+     discovers entries, compresses files (parallel for small, sequential for large), writes them to the archive,
+     reports progress, and returns a summary. On decompress, it reads the header, unwraps encryption, and restores entries to disk.*/
     public sealed class CompressionOrchestrator : ICompressionOrchestrator
     {
         public const string DefaultArchiveExtension = ".spca";
@@ -445,11 +448,6 @@ namespace SeniorProjectCompressionApp.Services
             string algorithmName = "Unknown";
             bool wasEncrypted = false;
             string targetRoot = destinationDirectory;
-
-            /* FIX: Replaced BinaryReader with manual reading to avoid buffering issues.
-             BinaryReader buffers data, which can steal bytes from the underlying stream
-             that belong to the encrypted payload, causing decryption failures.
-             We now use manual ReadFullAsync calls for headers/metadata.*/
             
             // Verify Header (again)
             byte[] header = new byte[RawContainerHeader.Length];

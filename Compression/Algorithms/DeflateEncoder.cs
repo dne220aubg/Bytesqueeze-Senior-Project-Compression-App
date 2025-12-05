@@ -72,7 +72,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
         private readonly int[] _prev;
         
         private int _windowPos; 
-        private int _blockStart; 
+        private int _blockStart; // start offset of the current block within _window
         private const int WindowMask = WindowSize - 1;
         private const int BufferSize = 2 * WindowSize + BlockSize; 
 
@@ -204,7 +204,9 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
         private void ProcessBlock(ref int lookahead, bool isFinalStream, CancellationToken ct)
         {
+            // Tokenize the current window slice into LZ77 literals/matches.
             List<Token> tokens = new List<Token>();
+            _blockStart = _windowPos;
             int pos = _windowPos;
             int end = pos + lookahead;
             int limit = isFinalStream ? end : end - MaxMatch;
@@ -228,6 +230,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
                     if (candidate != -1 && pos - candidate <= WindowSize)
                     {
+                        // Bounded chain walk through recent positions with the same hash.
                         int chain = 0;
                         int curMatch = candidate;
                         
@@ -249,7 +252,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
                 if (bestLen >= MinMatch)
                 {
-                    // Lazy Matching
+                    // Lazy Matching: check if the next position yields a meaningfully longer match.
                     if (_lazyMatching && remaining > MinMatch + 1 && bestLen < _niceMatch)
                     {
                             int nextHash = ComputeHash(_window, pos + 1);
@@ -303,7 +306,9 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                 
                 if (tokens.Count >= BlockSize)
                 {
-                    WriteBlock(tokens, false);
+                    int blockLength = pos - _blockStart;
+                    WriteBlock(tokens, _blockStart, blockLength, false);
+                    _blockStart = pos;
                     tokens.Clear();
                 }
             }
@@ -313,12 +318,17 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             
             if (isFinalStream && lookahead == 0 && tokens.Count > 0)
             {
-                WriteBlock(tokens, true);
+                int blockLength = pos - _blockStart;
+                WriteBlock(tokens, _blockStart, blockLength, true);
+                _blockStart = pos;
                 tokens.Clear();
             }
             else if (tokens.Count > 0)
             {
-                    WriteBlock(tokens, isFinalStream && lookahead == 0);
+                int blockLength = pos - _blockStart;
+                WriteBlock(tokens, _blockStart, blockLength, isFinalStream && lookahead == 0);
+                _blockStart = pos;
+                tokens.Clear();
             }
         }
 
@@ -347,11 +357,12 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             return len;
         }
 
-        private void WriteBlock(List<Token> tokens, bool isFinal)
+        private void WriteBlock(List<Token> tokens, int blockStart, int blockLength, bool isFinal)
         {
             tokens.Add(Token.EndOfBlock());
 
-            int storedBits = StoredBlockBitCount(tokens);
+            // Compare stored vs fixed vs dynamic bit counts to pick the smallest encoding.
+            int storedBits = StoredBlockBitCount(blockLength);
             int fixedBits = CalculateBlockBits(tokens, _fixedLitLenCodes, _fixedDistCodes, 3);
             DynamicHuffmanModel dynamicModel = BuildDynamicModel(tokens);
             int dynamicBits = dynamicModel.TotalBits;
@@ -361,8 +372,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
             if (useStored)
             {
-                if (preferDynamic) WriteDynamicBlock(tokens, dynamicModel, _output, isFinal, _writer);
-                else WriteFixedBlock(tokens, _output, isFinal, _fixedLitLenCodes, _fixedDistCodes, _writer);
+                WriteStoredBlock(blockStart, blockLength, _output, isFinal, _writer);
             }
             else if (preferDynamic)
             {
@@ -376,16 +386,11 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             _writer.Flush(_output);
         }
         
-        private int StoredBlockBitCount(List<Token> tokens)
+        private int StoredBlockBitCount(int blockLength)
         {
-            int bytes = 0;
-            foreach(var t in tokens)
-            {
-                if (t.IsLiteral) bytes++;
-                else if (!t.IsEndOfBlock) bytes += t.Length;
-            }
-            if (bytes > 65535) return int.MaxValue;
-            return 32 + bytes * 8 + 5;
+            // Stored blocks are limited to 64 KiB; larger blocks are never considered.
+            if (blockLength <= 0 || blockLength > 65535) return int.MaxValue;
+            return 32 + blockLength * 8 + 5;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -455,6 +460,24 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             WriteTokens(tokens, litCodes, distCodes, writer);
         }
 
+        private void WriteStoredBlock(int blockStart, int blockLength, Stream output, bool isFinal, DeflateBitWriter writer)
+        {
+            // BTYPE=00 stored block with byte alignment and LEN/NLEN header.
+            writer.WriteBits(isFinal ? 1u : 0u, 1);
+            writer.WriteBits(0, 2);
+            writer.AlignToByte();
+
+            ushort len = (ushort)blockLength;
+            ushort nlen = (ushort)~len;
+            writer.WriteBits((uint)(len & 0xFF), 8);
+            writer.WriteBits((uint)(len >> 8), 8);
+            writer.WriteBits((uint)(nlen & 0xFF), 8);
+            writer.WriteBits((uint)(nlen >> 8), 8);
+
+            writer.Flush(output);
+            output.Write(_window, blockStart, blockLength);
+        }
+
         private static void WriteDynamicBlock(List<Token> tokens, DynamicHuffmanModel model, Stream output, bool isFinal, DeflateBitWriter writer)
         {
             writer.WriteBits(isFinal ? 1u : 0u, 1);
@@ -513,6 +536,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
         private static DynamicHuffmanModel BuildDynamicModel(List<Token> tokens)
         {
+            // Build frequency tables and canonical Huffman codes for this block.
             int[] litFreq = new int[286];
             int[] distFreq = new int[30];
 
@@ -660,6 +684,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
         private static void RleCodeLengths(List<int> lengths, List<int> symbols, List<int> extras)
         {
+            // Run-length encode code lengths using the Deflate CL alphabet (0,16,17,18).
             int i = 0;
             while (i < lengths.Count)
             {

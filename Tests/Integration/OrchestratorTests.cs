@@ -18,7 +18,7 @@ namespace SeniorProjectCompressionApp.Tests.Integration
         [TestMethod]
         public async Task FullAppFlowTest()
         {
-            // Use a real file if possible, or create a large dummy file
+            // Using a real file
             string filePath = @"C:\Users\Lazaj Store\Desktop\CANADA CONFIRM LEADS (1).txt";
             bool createdTemp = false;
 

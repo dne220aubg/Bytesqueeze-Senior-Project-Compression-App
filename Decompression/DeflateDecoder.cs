@@ -8,8 +8,9 @@ using SeniorProjectCompressionApp.Models;
 
 namespace SeniorProjectCompressionApp.Decompression
 {
-    internal sealed class DeflateDecoder
-    {
+    internal sealed class DeflateDecoder    // It reads a Deflate-compressed stream and reconstructs the original bytes.
+    {   
+        // RFC1951 tables:
         private const int WindowSize = 32768;
         private static readonly int[] CodeLengthOrder = new int[] { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
         private static readonly int[] s_lengthBases = new int[] { 3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258 };

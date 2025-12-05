@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace SeniorProjectCompressionApp.Security
 {
-    // Uses AES with PBKDF2-derived keys to encrypt and decrypt archive payloads.
+    // Encryption layer for archives. Uses AES with PBKDF2-derived keys to encrypt and decrypt archive payloads.
     public sealed class AesEncryptionService : IEncryptionService
     {
         private const int SaltSize = 16;

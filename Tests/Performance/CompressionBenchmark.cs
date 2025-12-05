@@ -10,6 +10,7 @@ using SeniorProjectCompressionApp.Compression.Algorithms;
 namespace SeniorProjectCompressionApp.Tests.Performance
 {
     [TestClass]
+    // Automated performance benchmark: generates some random text, compresses it, and measures the time it takes.
     public class CompressionBenchmark
     {
         [TestMethod]

@@ -143,7 +143,7 @@ namespace SeniorProjectCompressionApp
             this.lblCompressionOutput.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
             this.lblCompressionOutput.Location = new System.Drawing.Point(24, 258);
             this.lblCompressionOutput.Name = "lblCompressionOutput";
-            this.lblCompressionOutput.Size = new System.Drawing.Size(119, 19);
+            this.lblCompressionOutput.Size = new System.Drawing.Size(140, 19);
             this.lblCompressionOutput.TabIndex = 9;
             this.lblCompressionOutput.Text = "Destination directory:";
             // 
@@ -199,7 +199,7 @@ namespace SeniorProjectCompressionApp
             this.lblCompressionAlgorithm.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
             this.lblCompressionAlgorithm.Location = new System.Drawing.Point(24, 104);
             this.lblCompressionAlgorithm.Name = "lblCompressionAlgorithm";
-            this.lblCompressionAlgorithm.Size = new System.Drawing.Size(73, 19);
+            this.lblCompressionAlgorithm.Size = new System.Drawing.Size(145, 19);
             this.lblCompressionAlgorithm.TabIndex = 4;
             this.lblCompressionAlgorithm.Text = "Compression Method:";
             // 
@@ -270,7 +270,7 @@ namespace SeniorProjectCompressionApp
             this.tabDecompression.Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
             this.tabDecompression.Name = "tabDecompression";
             this.tabDecompression.Padding = new System.Windows.Forms.Padding(18);
-            this.tabDecompression.Size = new System.Drawing.Size(688, 366);
+            this.tabDecompression.Size = new System.Drawing.Size(672, 363);
             this.tabDecompression.TabIndex = 1;
             this.tabDecompression.Text = "Decompression";
             // 
@@ -437,7 +437,7 @@ namespace SeniorProjectCompressionApp
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.White;
-            this.ClientSize = new System.Drawing.Size(704, 477);
+            this.ClientSize = new System.Drawing.Size(704, 481);
             this.Controls.Add(this.lblStatus);
             this.Controls.Add(this.progressBar);
             this.Controls.Add(this.tabControlMain);

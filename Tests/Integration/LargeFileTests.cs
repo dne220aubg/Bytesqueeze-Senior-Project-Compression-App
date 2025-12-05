@@ -14,12 +14,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace SeniorProjectCompressionApp.Tests.Integration
 {
     [TestClass]
+    // Integration test: compress a large real-world file
     public class LargeFileTests
     {
         [TestMethod]
         public async Task ParallelCompressionTest()
         {
-            // Testing with real world files
             string filePath = @"C:\Users\Lazaj Store\Desktop\BigDatabase.mdb";
             bool createdTemp = false;
 

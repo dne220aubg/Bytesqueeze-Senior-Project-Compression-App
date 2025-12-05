@@ -3,9 +3,9 @@ using SeniorProjectCompressionApp.Models;
 
 namespace SeniorProjectCompressionApp.Compression
 {
-    internal static class DeflateHelpers
+    internal static class DeflateHelpers // They generate the RFC1951 fixed Huffman code lengths
     {
-        public static HuffmanCode[] BuildFixedLiteralLengthCodes()
+        public static HuffmanCode[] BuildFixedLiteralLengthCodes() // Fixed Literal Length Codes
         {
             int[] lengths = new int[288];
             for (int i = 0; i <= 143; i++) lengths[i] = 8;
@@ -15,7 +15,7 @@ namespace SeniorProjectCompressionApp.Compression
             return BuildCanonicalCodes(lengths);
         }
 
-        public static HuffmanCode[] BuildFixedDistanceCodes()
+        public static HuffmanCode[] BuildFixedDistanceCodes() // Fixed Distance Codes
         {
             int[] lengths = new int[32];
             for (int i = 0; i < lengths.Length; i++) lengths[i] = 5;

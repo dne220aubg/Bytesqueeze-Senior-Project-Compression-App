@@ -2,6 +2,7 @@ using System;
 
 namespace SeniorProjectCompressionApp.Models
 {
+    // LZ77 token for Deflate: either a literal byte, a match (len/dist with codes/extras), or end-of-block.
     internal readonly struct Token
     {
         private Token(bool l, bool e, byte v, int len, int dist, int lc, int leb, int lev, int dc, int deb, int dev)

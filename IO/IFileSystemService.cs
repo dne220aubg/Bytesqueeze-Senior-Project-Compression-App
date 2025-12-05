@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace SeniorProjectCompressionApp.IO
 {
-    // Abstraction for the file-system interactions required during compression workflows.
+    // Wrapper for the file-system interactions required during compression workflows.
     public interface IFileSystemService
     {
         // Reads the entire contents of a file as a byte array.

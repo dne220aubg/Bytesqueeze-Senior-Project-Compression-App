@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 namespace SeniorProjectCompressionApp.Models
 {
+    // Holds the fully-built dynamic Huffman model for a single Deflate block:
     internal sealed class DynamicHuffmanModel
     {
         public DynamicHuffmanModel(HuffmanCode[] litLen, HuffmanCode[] dist, HuffmanCode[]? clCodes, int[]? clLengths, int hclenStored, int hlitCount, int hdistCount, List<int> lengthSymbols, List<int> lengthExtras, int totalBits, DecodeTable? litTable, DecodeTable? distTable, int codeLengthCount = 0, int hlitStored = 0, int hdistStored = 0)

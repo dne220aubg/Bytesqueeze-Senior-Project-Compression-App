@@ -3,7 +3,7 @@ using System.IO;
 
 namespace SeniorProjectCompressionApp.IO
 {
-    // Helper methods for manipulating paths in a platform-agnostic manner.
+    // Helper methods for manipulating paths.
     public static class PathUtilities
     {
         // Calculates the relative path from rootPath to fullPath.

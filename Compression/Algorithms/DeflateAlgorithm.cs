@@ -10,7 +10,7 @@ using SeniorProjectCompressionApp.Models;
 
 namespace SeniorProjectCompressionApp.Compression.Algorithms
 {
-    // A RFC1951-style deflate algorithm implementation using fixed Huffman blocks .
+    // Deflate algorithm 
     public sealed class DeflateAlgorithm : ICompressionAlgorithm
     {
         private const int ParallelBlockSize = 4 * 1024 * 1024; // 4 MB chunks
@@ -38,13 +38,13 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (output == null) throw new ArgumentNullException(nameof(output));
 
-            // Write Header
+            // Simple header: magic + version byte.
             await output.WriteAsync(MagicHeader, 0, MagicHeader.Length, cancellationToken).ConfigureAwait(false);
             await output.WriteAsync(new byte[] { 1 }, 0, 1, cancellationToken).ConfigureAwait(false); // Version 1
 
             var tasks = new Queue<Task<byte[]>>();
 
-            // Limit parallel tasks to (cores - 1) so we don’t saturate the CPU and keep the system/UI responsive.
+            // Limit parallel tasks to (cores - 1) so we don't saturate the CPU and keep the system/UI responsive at old computers.
             int maxTasks = Math.Max(1, Environment.ProcessorCount - 1);
             
             long totalBytesRead = 0;
@@ -74,6 +74,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
                 int count = bytesRead;
 
+                // Compress this chunk in the background; return rented buffer on completion.
                 var task = Task.Run(() => 
                 {
                     try
@@ -90,6 +91,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
                 if (tasks.Count >= maxTasks)
                 {
+                    // Back-pressure: await the oldest task to keep at most maxTasks in flight.
                     await WriteNextBlockAsync(tasks.Dequeue(), output, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -107,6 +109,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
         {
             byte[] compressedBlock = await task.ConfigureAwait(false);
             
+            // Length-prefix each compressed block so the decoder can split the stream.
             byte[] lengthBytes = BitConverter.GetBytes(compressedBlock.Length);
             await output.WriteAsync(lengthBytes, 0, 4, cancellationToken).ConfigureAwait(false);
             
@@ -128,6 +131,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                 
                 if (read != header.Length || !header.SequenceEqual(MagicHeader))
                 {
+                    // Fallback: if no parallel header, assume plain Deflate stream.
                     input.Position = startPos;
                     var decompressor = new DeflateDecoder(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
                     await Task.Run(() => decompressor.Decompress(input, output, cancellationToken), cancellationToken).ConfigureAwait(false);
@@ -169,6 +173,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                     read = await ReadFullAsync(input, compressedBlock, cancellationToken).ConfigureAwait(false);
                     if (read != blockLength) throw new EndOfStreamException();
 
+                    // Decompress this block in parallel and collect results to preserve order.
                     var task = Task.Run(() => 
                     {
                         using (var msInput = new MemoryStream(compressedBlock))
@@ -221,6 +226,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 
             using (MemoryStream output = new MemoryStream(count / 2 + 256))
             {
+                // Per-chunk Deflate encoder; returns compressed payload as a byte array.
                 var encoder = new DeflateEncoder(output, _fixedLitLenCodes, _fixedDistCodes, _level);
                 encoder.CompressBytes(data, offset, count, cancellationToken);
                 return output.ToArray();
