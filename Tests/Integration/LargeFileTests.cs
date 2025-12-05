@@ -19,19 +19,9 @@ namespace SeniorProjectCompressionApp.Tests.Integration
         [TestMethod]
         public async Task ParallelCompressionTest()
         {
-            // Use a real file if possible, or create a large dummy file
-            string filePath = @"C:\Users\Lazaj Store\Desktop\CANADA CONFIRM LEADS (1).txt";
+            // Testing with real world files
+            string filePath = @"C:\Users\Lazaj Store\Desktop\BigDatabase.mdb";
             bool createdTemp = false;
-
-            if (!File.Exists(filePath))
-            {
-                Console.WriteLine($"Note: Large test file not found at {filePath}. Creating a smaller temporary file for testing.");
-                filePath = Path.Combine(Path.GetTempPath(), "largefile_test_dummy.txt");
-                byte[] data = new byte[10 * 1024 * 1024]; // 10MB
-                new Random().NextBytes(data);
-                File.WriteAllBytes(filePath, data);
-                createdTemp = true;
-            }
 
             Console.WriteLine($"Testing PARALLEL Compression on: {filePath}");
             FileInfo info = new FileInfo(filePath);

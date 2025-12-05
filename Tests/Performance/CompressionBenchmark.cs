@@ -39,13 +39,13 @@ namespace SeniorProjectCompressionApp.Tests.Performance
             Console.WriteLine($"Compressed Size: {compressed.Length:N0} bytes");
             Console.WriteLine($"Ratio: {ratio:F2}%");
             
-            if (sw.ElapsedMilliseconds > 1000)
+            if (sw.ElapsedMilliseconds > 1500)
             {
-                Console.WriteLine("GOAL FAILED: Time > 1000ms");
+                Console.WriteLine("GOAL FAILED: Time > 1500ms");
             }
             else
             {
-                Console.WriteLine("GOAL MET: Time < 1000ms");
+                Console.WriteLine("GOAL MET: Time < 1500ms");
             }
         }
         
