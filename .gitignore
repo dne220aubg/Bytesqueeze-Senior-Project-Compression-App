@@ -7,8 +7,5 @@ obj/
 *.user
 *.suo
 
-# NuGet
-packages/
-
 # Test results
 TestResults/
