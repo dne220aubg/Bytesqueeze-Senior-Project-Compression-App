@@ -11,7 +11,7 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
 {
     internal sealed class DeflateEncoder
     {
-        private const int WindowSize = 32768;
+        private const int WindowSize = 32768; // 32 kb
         private const int MinMatch = 3;
         private const int MaxMatch = 258;
         private const int HashSize = 1 << 15;

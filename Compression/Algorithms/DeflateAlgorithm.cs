@@ -49,56 +49,78 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
             
             long totalBytesRead = 0;
 
-            while (true)
+            try
             {
-                byte[] buffer = ArrayPool<byte>.Shared.Rent(ParallelBlockSize);
-                int bytesRead; 
-                try
+                while (true)
                 {
-                    bytesRead = await input.ReadAsync(buffer, 0, ParallelBlockSize, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    ArrayPool<byte>.Shared.Return(buffer);
-                    throw;
-                }
-
-                if (bytesRead == 0)
-                {
-                    ArrayPool<byte>.Shared.Return(buffer);
-                    break;
-                }
-
-                totalBytesRead += bytesRead;
-                progress?.Report(totalBytesRead);
-
-                int count = bytesRead;
-
-                // Compress this chunk in the background; return rented buffer on completion.
-                var task = Task.Run(() => 
-                {
+                    byte[] buffer = ArrayPool<byte>.Shared.Rent(ParallelBlockSize);
+                    int bytesRead; 
                     try
                     {
-                        return CompressBuffer(buffer, 0, count, cancellationToken);
+                        bytesRead = await input.ReadAsync(buffer, 0, ParallelBlockSize, cancellationToken).ConfigureAwait(false);
                     }
-                    finally
+                    catch
                     {
                         ArrayPool<byte>.Shared.Return(buffer);
+                        throw;
                     }
-                }, cancellationToken);
 
-                tasks.Enqueue(task);
+                    if (bytesRead == 0)
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                        break;
+                    }
 
-                if (tasks.Count >= maxTasks)
+                    totalBytesRead += bytesRead;
+                    progress?.Report(totalBytesRead);
+
+                    int count = bytesRead;
+
+                    // Compress this chunk in the background; return rented buffer on completion.
+                    var task = Task.Run(() => 
+                    {
+                        try
+                        {
+                            return CompressBuffer(buffer, 0, count, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return Array.Empty<byte>();
+                        }
+                        finally
+                        {
+                            ArrayPool<byte>.Shared.Return(buffer);
+                        }
+                    }, cancellationToken);
+
+                    tasks.Enqueue(task);
+
+                    if (tasks.Count >= maxTasks)
+                    {
+                        // Back-pressure: await the oldest task to keep at most maxTasks in flight.
+                        await WriteNextBlockAsync(tasks.Dequeue(), output, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                while (tasks.Count > 0)
                 {
-                    // Back-pressure: await the oldest task to keep at most maxTasks in flight.
                     await WriteNextBlockAsync(tasks.Dequeue(), output, cancellationToken).ConfigureAwait(false);
                 }
             }
-
-            while (tasks.Count > 0)
+            finally
             {
-                await WriteNextBlockAsync(tasks.Dequeue(), output, cancellationToken).ConfigureAwait(false);
+                // Ensure all background tasks are completed/observed even if we crash/cancel.
+                if (tasks.Count > 0)
+                {
+                    try
+                    {
+                        await Task.WhenAll(tasks).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Ignore exceptions from cancelled tasks during cleanup
+                    }
+                }
             }
 
             // Write End of Stream Marker (Length 0)
@@ -160,34 +182,52 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                 int maxTasks = Math.Max(1, Environment.ProcessorCount - 1);
                 long totalBytesWritten = 0;
 
-                while (true)
+                try
                 {
-                    read = await ReadFullAsync(input, lengthBuffer, cancellationToken).ConfigureAwait(false);
-                    if (read == 0) break; 
-                    if (read != 4) throw new EndOfStreamException();
-
-                    int blockLength = BitConverter.ToInt32(lengthBuffer, 0);
-                    if (blockLength == 0) break; // End Marker
-
-                    byte[] compressedBlock = new byte[blockLength];
-                    read = await ReadFullAsync(input, compressedBlock, cancellationToken).ConfigureAwait(false);
-                    if (read != blockLength) throw new EndOfStreamException();
-
-                    // Decompress this block in parallel and collect results to preserve order.
-                    var task = Task.Run(() => 
+                    while (true)
                     {
-                        using (var msInput = new MemoryStream(compressedBlock))
-                        using (var msOutput = new MemoryStream(compressedBlock.Length * 4)) 
+                        read = await ReadFullAsync(input, lengthBuffer, cancellationToken).ConfigureAwait(false);
+                        if (read == 0) break; 
+                        if (read != 4) throw new EndOfStreamException();
+
+                        int blockLength = BitConverter.ToInt32(lengthBuffer, 0);
+                        if (blockLength == 0) break; // End Marker
+
+                        byte[] compressedBlock = new byte[blockLength];
+                        read = await ReadFullAsync(input, compressedBlock, cancellationToken).ConfigureAwait(false);
+                        if (read != blockLength) throw new EndOfStreamException();
+
+                        // Decompress this block in parallel and collect results to preserve order.
+                        var task = Task.Run(() => 
                         {
-                            var decompressor = new DeflateDecoder(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
-                            decompressor.Decompress(msInput, msOutput, cancellationToken);
-                            return msOutput.ToArray();
+                            try
+                            {
+                                using (var msInput = new MemoryStream(compressedBlock))
+                                using (var msOutput = new MemoryStream(compressedBlock.Length * 4)) 
+                                {
+                                    var decompressor = new DeflateDecoder(_fixedLitLenCodes, _fixedDistCodes, _fixedLitDecode, _fixedDistDecode);
+                                    decompressor.Decompress(msInput, msOutput, cancellationToken);
+                                    return msOutput.ToArray();
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                return Array.Empty<byte>();
+                            }
+                        }, cancellationToken);
+
+                        tasks.Enqueue(task);
+
+                        if (tasks.Count >= maxTasks)
+                        {
+                            byte[] decompressedBlock = await tasks.Dequeue().ConfigureAwait(false);
+                            await output.WriteAsync(decompressedBlock, 0, decompressedBlock.Length, cancellationToken).ConfigureAwait(false);
+                            totalBytesWritten += decompressedBlock.Length;
+                            progress?.Report(totalBytesWritten);
                         }
-                    }, cancellationToken);
+                    }
 
-                    tasks.Enqueue(task);
-
-                    if (tasks.Count >= maxTasks)
+                    while (tasks.Count > 0)
                     {
                         byte[] decompressedBlock = await tasks.Dequeue().ConfigureAwait(false);
                         await output.WriteAsync(decompressedBlock, 0, decompressedBlock.Length, cancellationToken).ConfigureAwait(false);
@@ -195,13 +235,20 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
                         progress?.Report(totalBytesWritten);
                     }
                 }
-
-                while (tasks.Count > 0)
+                finally
                 {
-                    byte[] decompressedBlock = await tasks.Dequeue().ConfigureAwait(false);
-                    await output.WriteAsync(decompressedBlock, 0, decompressedBlock.Length, cancellationToken).ConfigureAwait(false);
-                    totalBytesWritten += decompressedBlock.Length;
-                    progress?.Report(totalBytesWritten);
+                     // Ensure all background tasks are completed/observed even if we crash/cancel.
+                    if (tasks.Count > 0)
+                    {
+                        try
+                        {
+                            await Task.WhenAll(tasks).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            // Ignore exceptions from cancelled tasks during cleanup
+                        }
+                    }
                 }
             }
             
@@ -234,4 +281,3 @@ namespace SeniorProjectCompressionApp.Compression.Algorithms
         }
     }
 }
-

@@ -52,6 +52,7 @@ namespace SeniorProjectCompressionApp.Decompression
                 {
                     reader.AlignToByte();
                     if (!reader.TryReadBits(16, out uint len) || !reader.TryReadBits(16, out uint nlen)) throw new InvalidOperationException("Unexpected end of stored block.");
+                    // nlen must be the 16bit bitwise contrary of len basically all zeros are flipped to 1
                     if (((len ^ 0xFFFFu) & 0xFFFFu) != nlen) throw new InvalidOperationException($"Corrupt stored block length. Len={len}, NLen={nlen}");
                     
                     byte[] buffer = new byte[len];

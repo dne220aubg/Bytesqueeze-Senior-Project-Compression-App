@@ -1,0 +1,13 @@
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\bin\Release\net8.0\Verification.exe
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\bin\Release\net8.0\Verification.deps.json
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\bin\Release\net8.0\Verification.runtimeconfig.json
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\bin\Release\net8.0\Verification.dll
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\bin\Release\net8.0\Verification.pdb
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\Verification.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\Verification.csproj.CoreCompileInputs.cache
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\Verification.sourcelink.json
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\Verification.dll
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\refint\Verification.dll
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\Verification.pdb
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\Verification.genruntimeconfig.cache
+C:\Users\Lazaj Store\Desktop\SeniorProjectCompressionApp\Tests\obj\Release\net8.0\ref\Verification.dll
