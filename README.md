@@ -4,6 +4,12 @@ A powerful file compression application built with C# and Windows Forms, featuri
 
 ---
 
+## Screenshots
+
+![Compression Tab](docs/images/screenshot-compression.png)
+
+---
+
 ## Features
 
 ### Core Functionality
