@@ -1,6 +1,10 @@
-A powerful file compression application built with C# and Windows Forms, featuring custom implementations of the **DEFLATE** algorithm with multiple compression levels and optional **AES-256** encryption.
+A powerful file compression application built with C# and Windows Forms, featuring a **from-scratch implementation** of the **DEFLATE** algorithm with multiple compression levels and optional **AES-256** encryption.
 
 > **Senior Project** — Developed as a capstone project demonstrating expertise in data compression algorithms, cryptography, and Windows desktop application development.
+
+### Highlights
+- **100% Custom Implementation** — The core compression algorithm is built entirely from scratch with **no external compression libraries**
+- **Custom Archive Format** — Uses `.spca` (Senior Project Compressed Archive) file format
 
 ---
 
@@ -13,7 +17,7 @@ A powerful file compression application built with C# and Windows Forms, featuri
 ## Features
 
 ### Core Functionality
-- **File & Folder Compression** — Compress single files or entire directories into archives
+- **File & Folder Compression** — Compress single files or entire directories into `.spca` archives
 - **Decompression** — Extract archives back to their original state
 - **Progress Tracking** — Real-time progress bar and status updates during operations
 
