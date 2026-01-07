@@ -3,7 +3,7 @@ A powerful file compression application built with C# and Windows Forms, featuri
 > **Senior Project** — Developed as a capstone project demonstrating expertise in data compression algorithms, cryptography, and Windows desktop application development.
 
 ### Highlights
-- **100% Custom Implementation** — The core compression algorithm is built entirely from scratch with **no external compression libraries**
+- **Custom Implementation** — The core compression algorithm is built entirely from scratch with **no external compression libraries**
 - **Custom Archive Format** — Uses `.spca` (Senior Project Compressed Archive) file format
 
 ---
